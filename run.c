@@ -227,139 +227,406 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
         xout[i] = val;
     }
 }
+// ============================================================
+// Token Embedding
+// ============================================================
 
-float* forward(Transformer* transformer, int token, int pos) {
+static void embedding_lookup(Transformer* t, int token) {
+    Config* p = &t->config;
+    TransformerWeights* w = &t->weights;
+    RunState* s = &t->state;
 
-    // a few convenience variables
-    Config* p = &transformer->config;
-    TransformerWeights* w = &transformer->weights;
-    RunState* s = &transformer->state;
-    float *x = s->x;
+    float* row = w->token_embedding_table + token * p->dim;
+    memcpy(s->x, row, p->dim * sizeof(float));
+}
+
+
+// ============================================================
+// Attention: RMSNorm
+// ============================================================
+
+static void attention_norm(Transformer* t, int l) {
+    Config* p = &t->config;
+    TransformerWeights* w = &t->weights;
+    RunState* s = &t->state;
+
     int dim = p->dim;
-    int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
-    int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
-    int hidden_dim =  p->hidden_dim;
+
+    rmsnorm(
+        s->xb,
+        s->x,
+        w->rms_att_weight + l * dim,
+        dim
+    );
+}
+
+
+// ============================================================
+// Attention: Q, K, V Projection
+// ============================================================
+
+static void qkv_projection(Transformer* t, int l, int pos) {
+    Config* p = &t->config;
+    TransformerWeights* w = &t->weights;
+    RunState* s = &t->state;
+
+    int dim = p->dim;
+    int kv_dim = dim * p->n_kv_heads / p->n_heads;
+
+    // K, V の出力先は KV Cache 内の現在位置
+    int loff = l * p->seq_len * kv_dim;
+
+    s->k = s->key_cache + loff + pos * kv_dim;
+    s->v = s->value_cache + loff + pos * kv_dim;
+
+    // Q = Wq * xb
+    matmul(
+        s->q, s->xb,
+        w->wq + l * dim * dim,
+        dim, dim
+    );
+
+    // K = Wk * xb（KV Cacheに直接書き込む）
+    matmul(
+        s->k, s->xb,
+        w->wk + l * dim * kv_dim,
+        dim, kv_dim
+    );
+
+    // V = Wv * xb（KV Cacheに直接書き込む）
+    matmul(
+        s->v, s->xb,
+        w->wv + l * dim * kv_dim,
+        dim, kv_dim
+    );
+}
+
+
+// ============================================================
+// Attention: RoPE
+// ============================================================
+
+static void apply_rope(Transformer* t, int pos) {
+    Config* p = &t->config;
+    RunState* s = &t->state;
+
+    int dim = p->dim;
     int head_size = dim / p->n_heads;
+    int kv_dim = dim * p->n_kv_heads / p->n_heads;
 
-    // copy the token embedding into x
-    float* content_row = w->token_embedding_table + token * dim;
-    memcpy(x, content_row, dim*sizeof(*x));
+    for (int i = 0; i < dim; i += 2) {
+        int head_dim = i % head_size;
 
-    // forward all the layers
-    for(unsigned long long l = 0; l < p->n_layers; l++) {
+        float freq = 1.0f / powf(
+            10000.0f,
+            head_dim / (float)head_size
+        );
 
-        // attention rmsnorm
-        rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
+        float val = pos * freq;
+        float fcr = cosf(val);
+        float fci = sinf(val);
 
-        // key and value point to the kv cache
-        int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
-        s->k = s->key_cache + loff + pos * kv_dim;
-        s->v = s->value_cache + loff + pos * kv_dim;
+        // Query と Key に適用（Valueには適用しない）
+        int rotn = i < kv_dim ? 2 : 1;
 
-        // qkv matmuls for this position
-        matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
-        matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
-        matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
+        for (int v = 0; v < rotn; v++) {
+            float* vec = v == 0 ? s->q : s->k;
 
-        // RoPE relative positional encoding: complex-valued rotate q and k in each head
-        for (int i = 0; i < dim; i+=2) {
-            int head_dim = i % head_size;
-            float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
-            float val = pos * freq;
-            float fcr = cosf(val);
-            float fci = sinf(val);
-            int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
-            for (int v = 0; v < rotn; v++) {
-                float* vec = v == 0 ? s->q : s->k; // the vector to rotate (query or key)
-                float v0 = vec[i];
-                float v1 = vec[i+1];
-                vec[i]   = v0 * fcr - v1 * fci;
-                vec[i+1] = v0 * fci + v1 * fcr;
-            }
-        }
+            float v0 = vec[i];
+            float v1 = vec[i + 1];
 
-        // multihead attention. iterate over all heads
-        int h;
-        #pragma omp parallel for private(h)
-        for (h = 0; h < p->n_heads; h++) {
-            // get the query vector for this head
-            float* q = s->q + h * head_size;
-            // attention scores for this head
-            float* att = s->att + h * p->seq_len;
-            // iterate over all timesteps, including the current one
-            for (int t = 0; t <= pos; t++) {
-                // get the key vector for this head and at this timestep
-                float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // calculate the attention score as the dot product of q and k
-                float score = 0.0f;
-                for (int i = 0; i < head_size; i++) {
-                    score += q[i] * k[i];
-                }
-                score /= sqrtf(head_size);
-                // save the score to the attention buffer
-                att[t] = score;
-            }
-
-            // softmax the scores to get attention weights, from 0..pos inclusively
-            softmax(att, pos + 1);
-
-            // weighted sum of the values, store back into xb
-            float* xb = s->xb + h * head_size;
-            memset(xb, 0, head_size * sizeof(float));
-            for (int t = 0; t <= pos; t++) {
-                // get the value vector for this head and at this timestep
-                float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // get the attention weight for this timestep
-                float a = att[t];
-                // accumulate the weighted value into xb
-                for (int i = 0; i < head_size; i++) {
-                    xb[i] += a * v[i];
-                }
-            }
-        }
-
-        // final matmul to get the output of the attention
-        matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
-
-        // residual connection back into x
-        for (int i = 0; i < dim; i++) {
-            x[i] += s->xb2[i];
-        }
-
-        // ffn rmsnorm
-        rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
-
-        // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
-        // first calculate self.w1(x) and self.w3(x)
-        matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
-        matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
-
-        // SwiGLU non-linearity
-        for (int i = 0; i < hidden_dim; i++) {
-            float val = s->hb[i];
-            // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
-            val *= (1.0f / (1.0f + expf(-val)));
-            // elementwise multiply with w3(x)
-            val *= s->hb2[i];
-            s->hb[i] = val;
-        }
-
-        // final matmul to get the output of the ffn
-        matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);
-
-        // residual connection
-        for (int i = 0; i < dim; i++) {
-            x[i] += s->xb[i];
+            vec[i]     = v0 * fcr - v1 * fci;
+            vec[i + 1] = v0 * fci + v1 * fcr;
         }
     }
+}
 
-    // final rmsnorm
-    rmsnorm(x, x, w->rms_final_weight, dim);
 
-    // classifier into logits
-    matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+// ============================================================
+// Attention: Score, Softmax, Weighted Sum
+// ============================================================
+
+static void compute_attention(Transformer* t, int l, int pos) {
+    Config* p = &t->config;
+    RunState* s = &t->state;
+
+    int head_size = p->dim / p->n_heads;
+    int kv_dim = p->dim * p->n_kv_heads / p->n_heads;
+    int kv_mul = p->n_heads / p->n_kv_heads;
+    int loff = l * p->seq_len * kv_dim;
+
+    int h;
+
+    #pragma omp parallel for private(h)
+    for (h = 0; h < p->n_heads; h++) {
+
+        float* q = s->q + h * head_size;
+        float* att = s->att + h * p->seq_len;
+
+        // 1. Attention Score
+        for (int pos2 = 0; pos2 <= pos; pos2++) {
+            float* k = s->key_cache
+                     + loff
+                     + pos2 * kv_dim
+                     + (h / kv_mul) * head_size;
+
+            float score = 0.0f;
+
+            for (int i = 0; i < head_size; i++) {
+                score += q[i] * k[i];
+            }
+
+            score /= sqrtf(head_size);
+            att[pos2] = score;
+        }
+
+        // 2. Softmax
+        softmax(att, pos + 1);
+
+        // 3. Weighted Sum
+        float* xb = s->xb + h * head_size;
+        memset(xb, 0, head_size * sizeof(float));
+
+        for (int pos2 = 0; pos2 <= pos; pos2++) {
+            float* v = s->value_cache
+                     + loff
+                     + pos2 * kv_dim
+                     + (h / kv_mul) * head_size;
+
+            float a = att[pos2];
+
+            for (int i = 0; i < head_size; i++) {
+                xb[i] += a * v[i];
+            }
+        }
+    }
+}
+
+
+// ============================================================
+// Attention: Output Projection + Residual
+// ============================================================
+
+static void attention_output(Transformer* t, int l) {
+    Config* p = &t->config;
+    TransformerWeights* w = &t->weights;
+    RunState* s = &t->state;
+
+    int dim = p->dim;
+
+    // Wo
+    matmul(
+        s->xb2, s->xb,
+        w->wo + l * dim * dim,
+        dim, dim
+    );
+
+    // Residual
+    for (int i = 0; i < dim; i++) {
+        s->x[i] += s->xb2[i];
+    }
+}
+
+
+// ============================================================
+// FFN: RMSNorm
+// ============================================================
+
+static void ffn_norm(Transformer* t, int l) {
+    Config* p = &t->config;
+    TransformerWeights* w = &t->weights;
+    RunState* s = &t->state;
+
+    int dim = p->dim;
+
+    rmsnorm(
+        s->xb,
+        s->x,
+        w->rms_ffn_weight + l * dim,
+        dim
+    );
+}
+
+
+// ============================================================
+// FFN: W1, W3 Projection
+// ============================================================
+
+static void ffn_up_projection(Transformer* t, int l) {
+    Config* p = &t->config;
+    TransformerWeights* w = &t->weights;
+    RunState* s = &t->state;
+
+    int dim = p->dim;
+    int hidden_dim = p->hidden_dim;
+
+    // W1
+    matmul(
+        s->hb, s->xb,
+        w->w1 + l * dim * hidden_dim,
+        dim, hidden_dim
+    );
+
+    // W3
+    matmul(
+        s->hb2, s->xb,
+        w->w3 + l * dim * hidden_dim,
+        dim, hidden_dim
+    );
+}
+
+
+// ============================================================
+// FFN: SwiGLU
+// ============================================================
+
+static void ffn_swiglu(Transformer* t) {
+    Config* p = &t->config;
+    RunState* s = &t->state;
+
+    for (int i = 0; i < p->hidden_dim; i++) {
+        float val = s->hb[i];
+
+        // SiLU
+        val *= 1.0f / (1.0f + expf(-val));
+
+        // Elementwise multiplication
+        val *= s->hb2[i];
+
+        s->hb[i] = val;
+    }
+}
+
+
+// ============================================================
+// FFN: W2 Projection + Residual
+// ============================================================
+
+static void ffn_down_projection(Transformer* t, int l) {
+    Config* p = &t->config;
+    TransformerWeights* w = &t->weights;
+    RunState* s = &t->state;
+
+    int dim = p->dim;
+    int hidden_dim = p->hidden_dim;
+
+    // W2
+    matmul(
+        s->xb, s->hb,
+        w->w2 + l * dim * hidden_dim,
+        hidden_dim, dim
+    );
+
+    // Residual
+    for (int i = 0; i < dim; i++) {
+        s->x[i] += s->xb[i];
+    }
+}
+
+
+// ============================================================
+// Final RMSNorm + Logits
+// ============================================================
+
+static float* final_projection(Transformer* t) {
+    Config* p = &t->config;
+    TransformerWeights* w = &t->weights;
+    RunState* s = &t->state;
+
+    rmsnorm(
+        s->x, s->x,
+        w->rms_final_weight,
+        p->dim
+    );
+
+    matmul(
+        s->logits, s->x,
+        w->wcls,
+        p->dim, p->vocab_size
+    );
+
     return s->logits;
 }
+
+
+// Capture the end before printing so stage timings exclude log output.
+static double measure_time(struct timespec start_time, const char* message,
+                           int pos, int layer) {
+    struct timespec end_time;
+    clock_gettime(CLOCK_MONOTONIC, &end_time);
+    double elapsed_time = (end_time.tv_sec - start_time.tv_sec) +
+                          (end_time.tv_nsec - start_time.tv_nsec) / 1e9;
+    if (layer >= 0) {
+        fprintf(stderr, "[token %d, layer %d] %s: %.9f seconds\n",
+                pos, layer, message, elapsed_time);
+    } else {
+        fprintf(stderr, "[token %d] %s: %.9f seconds\n",
+                pos, message, elapsed_time);
+    }
+    return elapsed_time;
+}
+
+float* forward(Transformer* t, int token, int pos) {
+    struct timespec stage_start;
+    double forward_elapsed = 0.0;
+
+    clock_gettime(CLOCK_MONOTONIC, &stage_start);
+    embedding_lookup(t, token);
+    forward_elapsed += measure_time(stage_start, "001:embedding lookup", pos, -1);
+
+    for (int l = 0; l < t->config.n_layers; l++) {
+        double layer_elapsed = 0.0;
+
+        clock_gettime(CLOCK_MONOTONIC, &stage_start);
+        attention_norm(t, l);
+        layer_elapsed += measure_time(stage_start, "002:attention norm", pos, l);
+
+        clock_gettime(CLOCK_MONOTONIC, &stage_start);
+        qkv_projection(t, l, pos);
+        layer_elapsed += measure_time(stage_start, "003:qkv projection", pos, l);
+
+        clock_gettime(CLOCK_MONOTONIC, &stage_start);
+        apply_rope(t, pos);
+        layer_elapsed += measure_time(stage_start, "004:apply rope", pos, l);
+
+        clock_gettime(CLOCK_MONOTONIC, &stage_start);
+        compute_attention(t, l, pos);
+        layer_elapsed += measure_time(stage_start, "005:compute attention", pos, l);
+
+        clock_gettime(CLOCK_MONOTONIC, &stage_start);
+        attention_output(t, l);
+        layer_elapsed += measure_time(stage_start, "006:attention output", pos, l);
+
+        clock_gettime(CLOCK_MONOTONIC, &stage_start);
+        ffn_norm(t, l);
+        layer_elapsed += measure_time(stage_start, "007:ffn norm", pos, l);
+
+        clock_gettime(CLOCK_MONOTONIC, &stage_start);
+        ffn_up_projection(t, l);
+        layer_elapsed += measure_time(stage_start, "008:ffn up projection", pos, l);
+
+        clock_gettime(CLOCK_MONOTONIC, &stage_start);
+        ffn_swiglu(t);
+        layer_elapsed += measure_time(stage_start, "009:ffn swiglu", pos, l);
+
+        clock_gettime(CLOCK_MONOTONIC, &stage_start);
+        ffn_down_projection(t, l);
+        layer_elapsed += measure_time(stage_start, "010:ffn down projection", pos, l);
+
+        // Sum compute durations rather than including time spent printing logs.
+        forward_elapsed += layer_elapsed;
+        fprintf(stderr, "[token %d, layer %d] 102:layer compute total: %.9f seconds\n",
+                pos, l, layer_elapsed);
+    }
+
+    clock_gettime(CLOCK_MONOTONIC, &stage_start);
+    float* logits = final_projection(t);
+    forward_elapsed += measure_time(stage_start, "011:final projection", pos, -1);
+    fprintf(stderr, "[token %d] 103:forward compute total: %.9f seconds\n",
+            pos, forward_elapsed);
+    return logits;
+}
+
 
 // ----------------------------------------------------------------------------
 // The Byte Pair Encoding (BPE) Tokenizer that translates strings <-> tokens
@@ -725,6 +992,7 @@ long time_in_ms() {
 
 // ----------------------------------------------------------------------------
 // generation loop
+
 
 void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, char *prompt, int steps) {
     char *empty_prompt = "";
