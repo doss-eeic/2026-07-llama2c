@@ -557,10 +557,10 @@ static double measure_time(struct timespec start_time, const char* message,
     double elapsed_time = (end_time.tv_sec - start_time.tv_sec) +
                           (end_time.tv_nsec - start_time.tv_nsec) / 1e9;
     if (layer >= 0) {
-        fprintf(stderr, "[token %d, layer %d] %s: %.9f seconds\n",
+        fprintf(stderr, "[token:%d, layer:%d] %s: %.9f seconds\n",
                 pos, layer, message, elapsed_time);
     } else {
-        fprintf(stderr, "[token %d] %s: %.9f seconds\n",
+        fprintf(stderr, "[token:%d] %s: %.9f seconds\n",
                 pos, message, elapsed_time);
     }
     return elapsed_time;
@@ -572,57 +572,57 @@ float* forward(Transformer* t, int token, int pos) {
 
     clock_gettime(CLOCK_MONOTONIC, &stage_start);
     embedding_lookup(t, token);
-    forward_elapsed += measure_time(stage_start, "001:embedding lookup", pos, -1);
+    forward_elapsed += measure_time(stage_start, "001:embedding-lookup", pos, -1);
 
     for (int l = 0; l < t->config.n_layers; l++) {
         double layer_elapsed = 0.0;
 
         clock_gettime(CLOCK_MONOTONIC, &stage_start);
         attention_norm(t, l);
-        layer_elapsed += measure_time(stage_start, "002:attention norm", pos, l);
+        layer_elapsed += measure_time(stage_start, "002:attention-norm", pos, l);
 
         clock_gettime(CLOCK_MONOTONIC, &stage_start);
         qkv_projection(t, l, pos);
-        layer_elapsed += measure_time(stage_start, "003:qkv projection", pos, l);
+        layer_elapsed += measure_time(stage_start, "003:qkv-projection", pos, l);
 
         clock_gettime(CLOCK_MONOTONIC, &stage_start);
         apply_rope(t, pos);
-        layer_elapsed += measure_time(stage_start, "004:apply rope", pos, l);
+        layer_elapsed += measure_time(stage_start, "004:apply-rope", pos, l);
 
         clock_gettime(CLOCK_MONOTONIC, &stage_start);
         compute_attention(t, l, pos);
-        layer_elapsed += measure_time(stage_start, "005:compute attention", pos, l);
+        layer_elapsed += measure_time(stage_start, "005:compute-attention", pos, l);
 
         clock_gettime(CLOCK_MONOTONIC, &stage_start);
         attention_output(t, l);
-        layer_elapsed += measure_time(stage_start, "006:attention output", pos, l);
+        layer_elapsed += measure_time(stage_start, "006:attention-output", pos, l);
 
         clock_gettime(CLOCK_MONOTONIC, &stage_start);
         ffn_norm(t, l);
-        layer_elapsed += measure_time(stage_start, "007:ffn norm", pos, l);
+        layer_elapsed += measure_time(stage_start, "007:ffn-norm", pos, l);
 
         clock_gettime(CLOCK_MONOTONIC, &stage_start);
         ffn_up_projection(t, l);
-        layer_elapsed += measure_time(stage_start, "008:ffn up projection", pos, l);
+        layer_elapsed += measure_time(stage_start, "008:ffn-up-projection", pos, l);
 
         clock_gettime(CLOCK_MONOTONIC, &stage_start);
         ffn_swiglu(t);
-        layer_elapsed += measure_time(stage_start, "009:ffn swiglu", pos, l);
+        layer_elapsed += measure_time(stage_start, "009:ffn-swiglu", pos, l);
 
         clock_gettime(CLOCK_MONOTONIC, &stage_start);
         ffn_down_projection(t, l);
-        layer_elapsed += measure_time(stage_start, "010:ffn down projection", pos, l);
+        layer_elapsed += measure_time(stage_start, "010:ffn-down-projection", pos, l);
 
         // Sum compute durations rather than including time spent printing logs.
         forward_elapsed += layer_elapsed;
-        fprintf(stderr, "[token %d, layer %d] 102:layer compute total: %.9f seconds\n",
+        fprintf(stderr, "[token:%d, layer:%d] 102:layer-compute-total: %.9f seconds\n",
                 pos, l, layer_elapsed);
     }
 
     clock_gettime(CLOCK_MONOTONIC, &stage_start);
     float* logits = final_projection(t);
-    forward_elapsed += measure_time(stage_start, "011:final projection", pos, -1);
-    fprintf(stderr, "[token %d] 103:forward compute total: %.9f seconds\n",
+    forward_elapsed += measure_time(stage_start, "011:final-projection", pos, -1);
+    fprintf(stderr, "[token:%d] 103:forward-compute-total: %.9f seconds\n",
             pos, forward_elapsed);
     return logits;
 }
