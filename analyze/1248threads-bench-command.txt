@@ -1,0 +1,15 @@
+mkdir -p benchmark
+
+for i in {1..5}; do
+    for threads in 1 2 4 8; do
+        echo "Run $i / threads=$threads"
+
+        OMP_NUM_THREADS=$threads \
+        OMP_DYNAMIC=FALSE \
+        OMP_PROC_BIND=close \
+        OMP_PLACES=cores \
+        ./run model.bin -n 256 -t 0 -s 42 -i "Once upon a time" \
+            > benchmark/t${threads}_r${i}.out \
+            2> benchmark/t${threads}_r${i}.log
+    done
+done

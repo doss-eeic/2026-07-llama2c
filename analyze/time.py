@@ -5,7 +5,7 @@ PARENT_DIR = os.path.dirname(os.path.join(CUR_DIR, "../"))
 
 
 dict = {}
-with open(os.path.join(PARENT_DIR, "timing7.log"), "r") as f:
+with open(os.path.join(PARENT_DIR, "timing-th8.log"), "r") as f:
     lines = f.readlines()
     split_lines = [line.split() for line in lines]
     if len(split_lines) > 0:

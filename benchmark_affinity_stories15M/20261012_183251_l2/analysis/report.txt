@@ -1,0 +1,108 @@
+=====================================================================================
+LLAMA2.C CPU AFFINITY BENCHMARK
+=====================================================================================
+Directory: /home/denjo/2026-07-llama2c/benchmark_affinity_stories15M/20261012_183251_l2
+
+=== Measurement validation ===
+
+P1         runs=5  tokens=222-222 layers=1332-1332
+E2         runs=5  tokens=222-222 layers=1332-1332
+E4         runs=5  tokens=222-222 layers=1332-1332
+E8         runs=5  tokens=222-222 layers=1332-1332
+E2_B       runs=5  tokens=222-222 layers=1332-1332
+E2_cross   runs=5  tokens=222-222 layers=1332-1332
+E4_B       runs=5  tokens=222-222 layers=1332-1332
+E4_cross   runs=5  tokens=222-222 layers=1332-1332
+
+=== Overall performance ===
+
+Case         Threads   Layers(ms)   Final(ms)   Forward(ms)    Speedup
+P1                 1       2.3644      2.7225        5.0875     1.000x
+E2                 2       3.0441      3.2337        6.2735     0.811x
+E4                 4       3.5701      3.2782        6.8492     0.743x
+E8                 8       3.6615      2.0750        5.7722     0.881x
+E2_B               2       3.1162      3.2191        6.3672     0.799x
+E2_cross           2       3.1737      3.3715        6.5835     0.773x
+E4_B               4       3.0935      2.8944        5.9944     0.849x
+E4_cross           4       2.5393      2.0205        4.5678     1.114x
+
+=== Fastest configuration ===
+
+Case: E4_cross
+Threads: 4
+CPU affinity: 4,5,8,9
+Forward: 4.5678 ms/token
+Speedup: 1.114x
+
+=== Run-to-run variation ===
+
+Case             Min(ms)    Median(ms)     Max(ms)    Range(%)
+P1                4.9283        5.0875      5.1692        4.73
+E2                6.1980        6.2735      6.6206        6.74
+E4                5.9329        6.8492      7.3693       20.97
+E8                5.4257        5.7722      6.0724       11.20
+E2_B              6.1642        6.3672      6.5359        5.84
+E2_cross          6.5024        6.5835      6.7736        4.12
+E4_B              5.5680        5.9944      6.0754        8.46
+E4_cross          4.3804        4.5678      4.7819        8.79
+
+=== Projection bottleneck ===
+
+Case          Projection(ms)   Projection(%)    Final(%)   Layers(%)
+P1                    4.8511           95.41       53.49       46.50
+E2                    5.9062           94.12       51.46       48.52
+E4                    6.3536           92.53       47.86       52.12
+E8                    5.1456           88.85       36.91       63.08
+E2_B                  6.0027           94.28       51.04       48.94
+E2_cross              6.2435           94.55       51.55       48.43
+E4_B                  5.5667           92.87       47.64       52.34
+E4_cross              4.2040           92.04       44.39       55.59
+
+=== Stage breakdown: E4_cross ===
+
+Stage                     Per call (us)    Per token (ms)    Forward (%)
+embedding                         0.839            0.0008           0.02
+attention_norm                    0.592            0.0036           0.08
+qkv                             116.964            0.7018          15.36
+rope                              7.842            0.0471           1.05
+compute_attention                48.002            0.2880           6.31
+attention_output                 38.419            0.2305           5.06
+ffn_norm                          0.673            0.0040           0.09
+ffn_up                          134.501            0.8070          17.67
+swiglu                            3.195            0.0192           0.41
+ffn_down                         72.868            0.4372           9.59
+final                          2020.479            2.0205          44.39
+layers                          423.222            2.5393          55.59
+forward                        4567.765            4.5678         100.00
+
+=== CPU affinity comparisons ===
+
+      E2 -> E4       speedup=0.916x (6.2735 -> 6.8492 ms)
+      E4 -> E8       speedup=1.187x (6.8492 -> 5.7722 ms)
+      E2 -> E2_B     speedup=0.985x (6.2735 -> 6.3672 ms)
+      E2 -> E2_cross speedup=0.953x (6.2735 -> 6.5835 ms)
+      E4 -> E4_B     speedup=1.143x (6.8492 -> 5.9944 ms)
+      E4 -> E4_cross speedup=1.499x (6.8492 -> 4.5678 ms)
+    E4_B -> E4_cross speedup=1.312x (5.9944 -> 4.5678 ms)
+      E2 -> E4       speedup=0.916x (6.2735 -> 6.8492 ms)
+      E4 -> E8       speedup=1.187x (6.8492 -> 5.7722 ms)
+E4_cross -> E8       speedup=0.791x (4.5678 -> 5.7722 ms)
+
+=== Interpretation guide ===
+
+P2 vs E2:
+  Compare P-core and E-core performance at 2 threads.
+E2 vs E4 vs E8:
+  Evaluate scaling using homogeneous E-cores.
+P2 vs P4_HT:
+  Evaluate Hyper-Threading on the same physical P-cores.
+P2 vs P2E2:
+  Evaluate mixed P/E-core scheduling.
+auto_2 vs P2:
+  Evaluate explicit CPU affinity.
+
+NOTE:
+  These measurements exclude most logging overhead.
+  Slowdowns alone do not establish DRAM bandwidth saturation.
+  CPU frequency, contention and OpenMP overhead also matter.
+  Medians are calculated independently per metric.
