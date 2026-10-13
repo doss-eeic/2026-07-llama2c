@@ -3,6 +3,6 @@ revision = 5
 requires-python = ">=3.14"
 
 [[package]]
-name = "cpu-profiler"
+name = "cpuprofiler"
 version = "0.1.0"
 source = { editable = "." }
