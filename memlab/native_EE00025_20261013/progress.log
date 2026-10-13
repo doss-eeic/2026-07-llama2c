@@ -1,0 +1,19 @@
+[16:18:40] START 00_environment
+[16:18:41] OK    00_environment
+[16:18:41] START 01_build
+[16:18:42] OK    01_build
+[16:18:42] START E1_tlbreach
+[16:18:42] OK    E1_tlbreach
+[16:18:42] START E2_chunkshuffle
+[16:19:35] OK    E2_chunkshuffle
+[16:19:35] START E3_runc_kinds
+[16:21:17] OK    E3_runc_kinds
+[16:21:17] START E3_runc_kinds_summary
+[16:21:17] OK    E3_runc_kinds_summary
+[16:21:17] START E4_recache_order
+[16:21:32] OK    E4_recache_order
+[16:21:32] START E5_bench_weights_layout
+[16:23:11] OK    E5_bench_weights_layout
+[16:23:11] START E6_perf
+[16:23:11] OK    E6_perf
+[16:23:11] DONE. Bring this file back: /home/denjo/Downloads/native_kit/results_EE00025_20261013_161840.tar.gz

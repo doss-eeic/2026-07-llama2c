@@ -1,0 +1,177 @@
+Output directory: /home/denjo/Downloads/native_kit/results_EE00025_20261013_161840/bench_weights_layout/20261013_162132
+Warm-up block 1/1
+Measured block 1/10
+  mode=0 threads=1     206.9 tok/s
+  mode=1 threads=1     209.3 tok/s
+  mode=0 threads=2     262.2 tok/s
+  mode=1 threads=4     566.7 tok/s
+  mode=3 threads=2     344.8 tok/s
+  mode=2 threads=1     214.1 tok/s
+  mode=1 threads=2     244.2 tok/s
+  mode=2 threads=2     323.1 tok/s
+  mode=3 threads=1     299.9 tok/s
+  mode=0 threads=4     598.9 tok/s
+  mode=2 threads=4     597.3 tok/s
+  mode=3 threads=4     629.6 tok/s
+Measured block 2/10
+  mode=1 threads=2     238.1 tok/s
+  mode=3 threads=2     370.8 tok/s
+  mode=0 threads=4     608.8 tok/s
+  mode=0 threads=2     548.4 tok/s
+  mode=1 threads=4     566.7 tok/s
+  mode=2 threads=4     598.9 tok/s
+  mode=2 threads=1     219.0 tok/s
+  mode=0 threads=1     209.3 tok/s
+  mode=3 threads=1     216.0 tok/s
+  mode=2 threads=2     260.9 tok/s
+  mode=3 threads=4     602.2 tok/s
+  mode=1 threads=1     208.9 tok/s
+Measured block 3/10
+  mode=2 threads=2     508.0 tok/s
+  mode=3 threads=1     223.5 tok/s
+  mode=3 threads=4     600.5 tok/s
+  mode=1 threads=4     512.8 tok/s
+  mode=0 threads=1     207.3 tok/s
+  mode=0 threads=2     244.5 tok/s
+  mode=1 threads=1     208.3 tok/s
+  mode=1 threads=2     240.2 tok/s
+  mode=2 threads=1     215.8 tok/s
+  mode=3 threads=2     339.0 tok/s
+  mode=2 threads=4     587.8 tok/s
+  mode=0 threads=4     607.1 tok/s
+Measured block 4/10
+  mode=3 threads=1     220.3 tok/s
+  mode=3 threads=2     277.6 tok/s
+  mode=2 threads=1     215.4 tok/s
+  mode=2 threads=4     589.3 tok/s
+  mode=1 threads=4     572.5 tok/s
+  mode=3 threads=4     569.6 tok/s
+  mode=1 threads=1     209.3 tok/s
+  mode=0 threads=2     240.2 tok/s
+  mode=0 threads=4     594.1 tok/s
+  mode=2 threads=2     295.5 tok/s
+  mode=0 threads=1     208.5 tok/s
+  mode=1 threads=2     248.0 tok/s
+Measured block 5/10
+  mode=3 threads=4     627.8 tok/s
+  mode=1 threads=2     245.8 tok/s
+  mode=3 threads=2     551.1 tok/s
+  mode=0 threads=4     608.8 tok/s
+  mode=0 threads=1     209.1 tok/s
+  mode=2 threads=4     595.7 tok/s
+  mode=2 threads=1     210.9 tok/s
+  mode=3 threads=1     223.7 tok/s
+  mode=2 threads=2     256.7 tok/s
+  mode=0 threads=2     242.9 tok/s
+  mode=1 threads=4     563.8 tok/s
+  mode=1 threads=1     207.5 tok/s
+Measured block 6/10
+  mode=2 threads=1     209.7 tok/s
+  mode=2 threads=4     592.5 tok/s
+  mode=3 threads=4     626.1 tok/s
+  mode=0 threads=1     206.7 tok/s
+  mode=3 threads=2     259.4 tok/s
+  mode=0 threads=4     594.1 tok/s
+  mode=1 threads=2     227.8 tok/s
+  mode=2 threads=2     261.8 tok/s
+  mode=1 threads=1     208.5 tok/s
+  mode=0 threads=2     239.2 tok/s
+  mode=1 threads=4     565.2 tok/s
+  mode=3 threads=1     222.8 tok/s
+Measured block 7/10
+  mode=0 threads=2     246.1 tok/s
+  mode=0 threads=4     594.1 tok/s
+  mode=1 threads=2     221.0 tok/s
+  mode=2 threads=1     214.4 tok/s
+  mode=2 threads=4     584.7 tok/s
+  mode=3 threads=1     222.8 tok/s
+  mode=0 threads=1     202.2 tok/s
+  mode=3 threads=4     602.2 tok/s
+  mode=1 threads=1     370.8 tok/s
+  mode=1 threads=4     597.3 tok/s
+  mode=3 threads=2     505.7 tok/s
+  mode=2 threads=2     535.1 tok/s
+Measured block 8/10
+  mode=3 threads=4     626.1 tok/s
+  mode=1 threads=4     580.1 tok/s
+  mode=1 threads=2     246.1 tok/s
+  mode=2 threads=2     341.0 tok/s
+  mode=0 threads=2     526.2 tok/s
+  mode=0 threads=4     565.2 tok/s
+  mode=1 threads=1     204.3 tok/s
+  mode=3 threads=2     288.9 tok/s
+  mode=0 threads=1     209.5 tok/s
+  mode=3 threads=1     224.4 tok/s
+  mode=2 threads=1     218.2 tok/s
+  mode=2 threads=4     547.0 tok/s
+Measured block 9/10
+  mode=1 threads=1     211.9 tok/s
+  mode=2 threads=2     477.3 tok/s
+  mode=2 threads=1     198.4 tok/s
+  mode=2 threads=4     472.2 tok/s
+  mode=3 threads=4     471.2 tok/s
+  mode=0 threads=2     516.4 tok/s
+  mode=0 threads=1     205.6 tok/s
+  mode=0 threads=4     578.5 tok/s
+  mode=1 threads=2     278.7 tok/s
+  mode=3 threads=1     292.7 tok/s
+  mode=1 threads=4     545.7 tok/s
+  mode=3 threads=2     548.4 tok/s
+Measured block 10/10
+  mode=2 threads=2     287.4 tok/s
+  mode=3 threads=1     231.7 tok/s
+  mode=2 threads=1     284.1 tok/s
+  mode=0 threads=1     206.0 tok/s
+  mode=0 threads=4     580.1 tok/s
+  mode=3 threads=2     317.1 tok/s
+  mode=0 threads=2     548.4 tok/s
+  mode=1 threads=4     571.1 tok/s
+  mode=2 threads=4     592.5 tok/s
+  mode=1 threads=1     207.9 tok/s
+  mode=3 threads=4     610.5 tok/s
+  mode=1 threads=2     249.7 tok/s
+=== Validation ===
+runs=120  distinct outputs=1  OK (all modes produce identical text)
+  mmap          offset_mod64=28   anon_huge_kb=0..0  load_ms(median)=0
+  copy          offset_mod64=28   anon_huge_kb=0..0  load_ms(median)=25
+  aligned       offset_mod64=0    anon_huge_kb=0..0  load_ms(median)=28
+  aligned+huge  offset_mod64=0    anon_huge_kb=59392..59392  load_ms(median)=17
+
+=== threads=1 ===
+mode           n  median tok/s  ms/token      min      max  range%
+mmap          10         207.1     4.828    202.2    209.5     3.5
+copy          10         208.7     4.792    204.3    370.8    79.8
+aligned       10         214.9     4.654    198.4    284.1    39.9
+aligned+huge  10         223.6     4.473    216.0    299.9    37.5
+comparison                         median ratio  paired median    wins
+copy / mmap (anon copy vs file mmap)       1.008x         1.007x    7/10
+aligned / copy (alignment)               1.030x         1.026x    8/10
+aligned+huge / aligned (huge pages)       1.040x         1.037x    8/10
+aligned+huge / mmap (total)              1.079x         1.078x   10/10
+
+=== threads=2 ===
+mode           n  median tok/s  ms/token      min      max  range%
+mmap          10         254.1     3.935    239.2    548.4   121.7
+copy          10         245.0     4.081    221.0    278.7    23.5
+aligned       10         309.3     3.233    256.7    535.1    90.0
+aligned+huge  10         341.9     2.925    259.4    551.1    85.3
+comparison                         median ratio  paired median    wins
+copy / mmap (anon copy vs file mmap)       0.964x         0.915x    2/10
+aligned / copy (alignment)               1.262x         1.257x   10/10
+aligned+huge / aligned (huge pages)       1.105x         1.029x    5/10
+aligned+huge / mmap (total)              1.345x         1.120x    7/10
+
+=== threads=4 ===
+mode           n  median tok/s  ms/token      min      max  range%
+mmap          10         594.1     1.683    565.2    608.8     7.3
+copy          10         566.7     1.765    512.8    597.3    14.9
+aligned       10         590.9     1.692    472.2    598.9    21.4
+aligned+huge  10         606.3     1.649    471.2    629.6    26.1
+comparison                         median ratio  paired median    wins
+copy / mmap (anon copy vs file mmap)       0.954x         0.949x    2/10
+aligned / copy (alignment)               1.043x         1.043x    7/10
+aligned+huge / aligned (huge pages)       1.026x         1.030x    8/10
+aligned+huge / mmap (total)              1.021x         1.022x    6/10
+
+ratio > 1 means the first mode is faster; 'wins' counts blocks where it was faster
+Saved: /home/denjo/Downloads/native_kit/results_EE00025_20261013_161840/bench_weights_layout/20261013_162132

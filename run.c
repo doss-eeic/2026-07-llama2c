@@ -6,6 +6,7 @@
 #include <time.h>
 #include <math.h>
 #include <string.h>
+#include <stdint.h>
 #include <fcntl.h>
 #if defined _WIN32
     #include "win.h"
@@ -72,7 +73,28 @@ typedef struct {
     int fd; // file descriptor for memory mapping
     float* data; // memory mapped data pointer
     ssize_t file_size; // size of the checkpoint file in bytes
+    // used instead of fd/data when the weights are copied into anonymous memory
+    void* weights_buf; // start of the anonymous mapping (NULL in WEIGHTS_MMAP mode)
+    size_t weights_buf_size;
 } Transformer;
+
+// how the weights are placed in memory (-w option)
+typedef enum {
+    WEIGHTS_MMAP = 0,         // original: mmap the checkpoint file, weights start at byte 28 of a page
+    WEIGHTS_COPY = 1,         // copy into anonymous memory, keep the 28 byte offset, 4KB pages
+    WEIGHTS_ALIGNED = 2,      // copy so that the weights start on a 2MB boundary, 4KB pages
+    WEIGHTS_ALIGNED_HUGE = 3, // same as WEIGHTS_ALIGNED, plus MADV_HUGEPAGE (transparent 2MB pages)
+} WeightsMode;
+
+static const char* weights_mode_name(int mode) {
+    switch (mode) {
+        case WEIGHTS_MMAP: return "mmap";
+        case WEIGHTS_COPY: return "copy";
+        case WEIGHTS_ALIGNED: return "aligned";
+        case WEIGHTS_ALIGNED_HUGE: return "aligned+hugepage";
+        default: return "unknown";
+    }
+}
 
 void malloc_run_state(RunState* s, Config* p) {
     // we calloc instead of malloc to keep valgrind happy
@@ -139,8 +161,37 @@ void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared
     w->wcls = shared_weights ? w->token_embedding_table : ptr;
 }
 
+#if !defined _WIN32
+float* copy_weights(char* checkpoint, ssize_t file_size, int mode, void** buf, size_t* buf_size) {
+    // copy the weights (everything after the Config header) into anonymous memory,
+    // so that we control their alignment and the page size used to back them
+    const size_t huge = 2 * 1024 * 1024;
+    size_t header = sizeof(Config);
+    size_t nbytes = file_size - header;
+    // reserve 2MB extra so that a 2MB aligned start can be picked inside the mapping
+    *buf_size = header + nbytes + 2 * huge;
+    char* base = mmap(NULL, *buf_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (base == MAP_FAILED) { fprintf(stderr, "mmap failed!\n"); exit(EXIT_FAILURE); }
+    char* aligned = (char*)(((uintptr_t)base + huge - 1) & ~(uintptr_t)(huge - 1));
+    // WEIGHTS_COPY keeps the same 28 byte misalignment as the mmap'd file, the others start on the boundary
+    char* dst = mode == WEIGHTS_COPY ? aligned + header : aligned;
+    // must be decided before the pages are first touched (by the fread below)
+    if (madvise(base, *buf_size, mode == WEIGHTS_ALIGNED_HUGE ? MADV_HUGEPAGE : MADV_NOHUGEPAGE) != 0) {
+        fprintf(stderr, "madvise failed!\n"); exit(EXIT_FAILURE);
+    }
+    FILE *file = fopen(checkpoint, "rb");
+    if (!file) { fprintf(stderr, "Couldn't open file %s\n", checkpoint); exit(EXIT_FAILURE); }
+    fseek(file, header, SEEK_SET);
+    if (fread(dst, 1, nbytes, file) != nbytes) { fprintf(stderr, "failed read\n"); exit(EXIT_FAILURE); }
+    fclose(file);
+    *buf = base;
+    return (float*)dst;
+}
+#endif
+
 void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weights,
-                     int* fd, float** data, ssize_t* file_size) {
+                     int* fd, float** data, ssize_t* file_size,
+                     int weights_mode, void** buf, size_t* buf_size) {
     FILE *file = fopen(checkpoint, "rb");
     if (!file) { fprintf(stderr, "Couldn't open file %s\n", checkpoint); exit(EXIT_FAILURE); }
     // read in the config header
@@ -152,26 +203,59 @@ void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weigh
     fseek(file, 0, SEEK_END); // move file pointer to end of file
     *file_size = ftell(file); // get the file size, in bytes
     fclose(file);
-    // memory map the Transformer weights into the data pointer
-    *fd = open(checkpoint, O_RDONLY); // open in read only mode
-    if (*fd == -1) { fprintf(stderr, "open failed!\n"); exit(EXIT_FAILURE); }
-    *data = mmap(NULL, *file_size, PROT_READ, MAP_PRIVATE, *fd, 0);
-    if (*data == MAP_FAILED) { fprintf(stderr, "mmap failed!\n"); exit(EXIT_FAILURE); }
-    float* weights_ptr = *data + sizeof(Config)/sizeof(float);
+    *buf = NULL;
+    *buf_size = 0;
+    float* weights_ptr;
+    if (weights_mode == WEIGHTS_MMAP) {
+        // memory map the Transformer weights into the data pointer
+        *fd = open(checkpoint, O_RDONLY); // open in read only mode
+        if (*fd == -1) { fprintf(stderr, "open failed!\n"); exit(EXIT_FAILURE); }
+        *data = mmap(NULL, *file_size, PROT_READ, MAP_PRIVATE, *fd, 0);
+        if (*data == MAP_FAILED) { fprintf(stderr, "mmap failed!\n"); exit(EXIT_FAILURE); }
+        weights_ptr = *data + sizeof(Config)/sizeof(float);
+    } else {
+#if defined _WIN32
+        fprintf(stderr, "weights mode %d is not supported on Windows\n", weights_mode);
+        exit(EXIT_FAILURE);
+#else
+        *fd = -1;
+        *data = MAP_FAILED;
+        weights_ptr = copy_weights(checkpoint, *file_size, weights_mode, buf, buf_size);
+#endif
+    }
     memory_map_weights(weights, config, weights_ptr, shared_weights);
 }
 
-void build_transformer(Transformer *t, char* checkpoint_path) {
+long anon_huge_pages_kb() {
+    // total transparent huge page memory of this process, -1 if unknown
+    FILE *f = fopen("/proc/self/smaps_rollup", "r");
+    if (!f) { return -1; }
+    char line[256];
+    long kb = -1;
+    while (fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "AnonHugePages: %ld kB", &kb) == 1) { break; }
+    }
+    fclose(f);
+    return kb;
+}
+
+void build_transformer_with_mode(Transformer *t, char* checkpoint_path, int weights_mode) {
     // read in the Config and the Weights from the checkpoint
-    read_checkpoint(checkpoint_path, &t->config, &t->weights, &t->fd, &t->data, &t->file_size);
+    read_checkpoint(checkpoint_path, &t->config, &t->weights, &t->fd, &t->data, &t->file_size,
+                    weights_mode, &t->weights_buf, &t->weights_buf_size);
     // allocate the RunState buffers
     malloc_run_state(&t->state, &t->config);
+}
+
+void build_transformer(Transformer *t, char* checkpoint_path) {
+    build_transformer_with_mode(t, checkpoint_path, WEIGHTS_MMAP);
 }
 
 void free_transformer(Transformer* t) {
     // close the memory mapping
     if (t->data != MAP_FAILED) { munmap(t->data, t->file_size); }
     if (t->fd != -1) { close(t->fd); }
+    if (t->weights_buf != NULL) { munmap(t->weights_buf, t->weights_buf_size); }
     // free the RunState buffers
     free_run_state(&t->state);
 }
@@ -900,6 +984,7 @@ void error_usage() {
     fprintf(stderr, "  -z <string> optional path to custom tokenizer\n");
     fprintf(stderr, "  -m <string> mode: generate|chat, default: generate\n");
     fprintf(stderr, "  -y <string> (optional) system prompt in chat mode\n");
+    fprintf(stderr, "  -w <int>    weights placement: 0=mmap (default) 1=copy 2=aligned 3=aligned+hugepage\n");
     exit(EXIT_FAILURE);
 }
 
@@ -915,6 +1000,7 @@ int main(int argc, char *argv[]) {
     unsigned long long rng_seed = 0; // seed rng with time by default
     char *mode = "generate";    // generate|chat
     char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
+    int weights_mode = WEIGHTS_MMAP; // how the weights are placed in memory
 
     // poor man's C argparse so we can override the defaults above from the command line
     if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
@@ -932,6 +1018,7 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'z') { tokenizer_path = argv[i + 1]; }
         else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
         else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
+        else if (argv[i][1] == 'w') { weights_mode = atoi(argv[i + 1]); }
         else { error_usage(); }
     }
 
@@ -940,10 +1027,15 @@ int main(int argc, char *argv[]) {
     if (temperature < 0.0) temperature = 0.0;
     if (topp < 0.0 || 1.0 < topp) topp = 0.9;
     if (steps < 0) steps = 0;
+    if (weights_mode < WEIGHTS_MMAP || weights_mode > WEIGHTS_ALIGNED_HUGE) { error_usage(); }
 
     // build the Transformer via the model .bin file
     Transformer transformer;
-    build_transformer(&transformer, checkpoint_path);
+    long load_start = time_in_ms();
+    build_transformer_with_mode(&transformer, checkpoint_path, weights_mode);
+    fprintf(stderr, "weights: mode=%s load_ms=%ld offset_mod64=%d anon_huge_kb=%ld\n",
+            weights_mode_name(weights_mode), time_in_ms() - load_start,
+            (int)((uintptr_t)transformer.weights.token_embedding_table % 64), anon_huge_pages_kb());
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
 
     // build the Tokenizer via the tokenizer .bin file

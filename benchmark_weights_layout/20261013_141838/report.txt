@@ -1,0 +1,44 @@
+=== Validation ===
+runs=180  distinct outputs=1  OK (all modes produce identical text)
+  mmap          offset_mod64=28   anon_huge_kb=0..0  load_ms(median)=0
+  copy          offset_mod64=28   anon_huge_kb=0..0  load_ms(median)=20
+  aligned       offset_mod64=0    anon_huge_kb=0..0  load_ms(median)=22
+  aligned+huge  offset_mod64=0    anon_huge_kb=59392..59392  load_ms(median)=23
+
+=== threads=1 ===
+mode           n  median tok/s  ms/token      min      max  range%
+mmap          15         362.3     2.760    343.2    368.9     7.1
+copy          15         282.2     3.543    259.1    294.7    12.6
+aligned       15         290.8     3.439    280.8    310.4    10.2
+aligned+huge  15         400.4     2.498    365.9    410.8    11.2
+comparison                         median ratio  paired median    wins
+copy / mmap (anon copy vs file mmap)       0.779x         0.773x    0/15
+aligned / copy (alignment)               1.030x         1.037x   15/15
+aligned+huge / aligned (huge pages)       1.377x         1.374x   15/15
+aligned+huge / mmap (total)              1.105x         1.098x   15/15
+
+=== threads=4 ===
+mode           n  median tok/s  ms/token      min      max  range%
+mmap          15         547.0     1.828    526.2    563.8     6.9
+copy          15         531.2     1.882    481.5    553.9    13.6
+aligned       15         523.7     1.910    504.6    549.8     8.6
+aligned+huge  15         565.2     1.769    545.7    594.1     8.6
+comparison                         median ratio  paired median    wins
+copy / mmap (anon copy vs file mmap)       0.971x         0.978x    3/15
+aligned / copy (alignment)               0.986x         0.990x    5/15
+aligned+huge / aligned (huge pages)       1.079x         1.095x   14/15
+aligned+huge / mmap (total)              1.033x         1.047x   14/15
+
+=== threads=8 ===
+mode           n  median tok/s  ms/token      min      max  range%
+mmap          15         786.5     1.271    688.5    812.5    15.8
+copy          15         751.7     1.330    597.3    783.7    24.8
+aligned       15         756.8     1.321    644.3    786.5    18.8
+aligned+huge  15         770.0     1.299    710.6    815.5    13.6
+comparison                         median ratio  paired median    wins
+copy / mmap (anon copy vs file mmap)       0.956x         0.948x    4/15
+aligned / copy (alignment)               1.007x         0.986x    7/15
+aligned+huge / aligned (huge pages)       1.017x         1.055x   11/15
+aligned+huge / mmap (total)              0.979x         0.993x    6/15
+
+ratio > 1 means the first mode is faster; 'wins' counts blocks where it was faster

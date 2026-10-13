@@ -1,0 +1,2 @@
+weights: mode=mmap load_ms=0 offset_mod64=28 anon_huge_kb=0
+achieved tok/s: 783.687943

@@ -1,0 +1,100 @@
+2026-10-13T16:18:40+09:00
+EE00025
+Linux EE00025 6.17.0-35-generic #35~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Tue May 26 19:30:42 UTC 2 x86_64 x86_64 x86_64 GNU/Linux
+PRETTY_NAME="Ubuntu 24.04.3 LTS"
+NAME="Ubuntu"
+ac_online=1
+governor=powersave
+energy_performance_preference=balance_performance
+thp_enabled=always [madvise] never
+thp_defrag=always defer defer+madvise [madvise] never
+perf_event_paranoid=4
+pinned_cpu=2
+
+Architecture:                            x86_64
+CPU op-mode(s):                          32-bit, 64-bit
+Address sizes:                           46 bits physical, 48 bits virtual
+Byte Order:                              Little Endian
+CPU(s):                                  14
+On-line CPU(s) list:                     0-13
+Vendor ID:                               GenuineIntel
+Model name:                              Intel(R) Core(TM) Ultra 5 225U
+CPU family:                              6
+Model:                                   181
+Thread(s) per core:                      2
+Core(s) per socket:                      12
+Socket(s):                               1
+Stepping:                                0
+CPU(s) scaling MHz:                      27%
+CPU max MHz:                             4800.0000
+CPU min MHz:                             400.0000
+BogoMIPS:                                6144.00
+Flags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf tsc_known_freq pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb ssbd ibrs ibpb stibp ibrs_enhanced tpr_shadow flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid rdseed adx smap clflushopt clwb intel_pt sha_ni xsaveopt xsavec xgetbv1 xsaves split_lock_detect user_shstk avx_vnni dtherm ida arat pln pts hwp hwp_notify hwp_act_window hwp_epp hwp_pkg_req hfi vnmi umip pku ospke waitpkg gfni vaes vpclmulqdq rdpid bus_lock_detect movdiri movdir64b fsrm md_clear serialize arch_lbr ibt flush_l1d arch_capabilities
+Virtualization:                          VT-x
+L1d cache:                               352 KiB (10 instances)
+L1i cache:                               640 KiB (10 instances)
+L2 cache:                                10 MiB (5 instances)
+L3 cache:                                12 MiB (1 instance)
+NUMA node(s):                            1
+NUMA node0 CPU(s):                       0-13
+Vulnerability Gather data sampling:      Not affected
+Vulnerability Ghostwrite:                Not affected
+Vulnerability Indirect target selection: Not affected
+Vulnerability Itlb multihit:             Not affected
+Vulnerability L1tf:                      Not affected
+Vulnerability Mds:                       Not affected
+Vulnerability Meltdown:                  Not affected
+Vulnerability Mmio stale data:           Not affected
+Vulnerability Old microcode:             Not affected
+Vulnerability Reg file data sampling:    Not affected
+Vulnerability Retbleed:                  Not affected
+Vulnerability Spec rstack overflow:      Not affected
+Vulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl
+Vulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+Vulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS Not affected; BHI BHI_DIS_S
+Vulnerability Srbds:                     Not affected
+Vulnerability Tsa:                       Not affected
+Vulnerability Tsx async abort:           Not affected
+Vulnerability Vmscape:                   Mitigation; IBPB before exit to userspace
+
+CPU CORE    MAXMHZ   MINMHZ
+  0    0 4800.0000 400.0000
+  1    0 4800.0000 400.0000
+  2    1 4800.0000 400.0000
+  3    1 4800.0000 400.0000
+  4    2 3800.0000 400.0000
+  5    3 3800.0000 400.0000
+  6    4 3800.0000 400.0000
+  7    5 3800.0000 400.0000
+  8    6 3800.0000 400.0000
+  9    7 3800.0000 400.0000
+ 10    8 3800.0000 400.0000
+ 11    9 3800.0000 400.0000
+ 12   10 2400.0000 400.0000
+ 13   11 2400.0000 400.0000
+
+cpu0 L2=2048K shared=0-1
+cpu1 L2=2048K shared=0-1
+cpu2 L2=2048K shared=2-3
+cpu3 L2=2048K shared=2-3
+cpu4 L2=2048K shared=4-7
+cpu5 L2=2048K shared=4-7
+cpu6 L2=2048K shared=4-7
+cpu7 L2=2048K shared=4-7
+cpu8 L2=2048K shared=8-11
+cpu9 L2=2048K shared=8-11
+cpu10 L2=2048K shared=8-11
+cpu11 L2=2048K shared=8-11
+cpu12 L2=2048K shared=12-13
+cpu13 L2=2048K shared=12-13
+
+               total        used        free      shared  buff/cache   available
+Mem:           31591        2970       26913         823        2713       28621
+Swap:           7812           0        7812
+
+Node 0, zone      DMA      0      2      0      0      0      0      0      0      1      1      2 
+Node 0, zone    DMA32      6      8      5      5      5      4      5      4      5      3    488 
+Node 0, zone   Normal   1994     86    628   1034    455    238    122     66     48     29   6164 
+
+gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+Python 3.12.3

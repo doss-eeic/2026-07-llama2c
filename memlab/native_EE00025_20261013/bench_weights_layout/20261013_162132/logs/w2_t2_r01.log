@@ -1,0 +1,2 @@
+weights: mode=aligned load_ms=30 offset_mod64=0 anon_huge_kb=0
+achieved tok/s: 323.099415

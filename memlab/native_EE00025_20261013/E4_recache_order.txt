@@ -1,0 +1,63 @@
+### orig_first
+Node 0, zone   Normal   7703   5721   2653    871    545    299    123     72     19     10   6159 
+100.0%  /home/denjo/Downloads/native_kit/stories15M.bin
+100.0%  /home/denjo/Downloads/native_kit/work/model_fresh.bin
+file                                                          seq GB/s matvec GB/s  walk ns
+/home/denjo/Downloads/native_kit/stories15M.bin                   10.1        12.8    11.55
+/home/denjo/Downloads/native_kit/work/model_fresh.bin             10.1        12.8    11.75
+### orig_first
+Node 0, zone   Normal   7262   5721   2638    871    545    299    123     72     19     14   6159 
+100.0%  /home/denjo/Downloads/native_kit/stories15M.bin
+100.0%  /home/denjo/Downloads/native_kit/work/model_fresh.bin
+file                                                          seq GB/s matvec GB/s  walk ns
+/home/denjo/Downloads/native_kit/stories15M.bin                   10.1        12.9    11.48
+/home/denjo/Downloads/native_kit/work/model_fresh.bin             10.1        13.0    11.66
+### orig_first
+Node 0, zone   Normal   7018   5735   2622    876    546    299    123     72     19     14   6159 
+100.0%  /home/denjo/Downloads/native_kit/stories15M.bin
+100.0%  /home/denjo/Downloads/native_kit/work/model_fresh.bin
+file                                                          seq GB/s matvec GB/s  walk ns
+/home/denjo/Downloads/native_kit/stories15M.bin                   10.1        13.0    11.49
+/home/denjo/Downloads/native_kit/work/model_fresh.bin             10.1        12.9    11.69
+### fresh_first
+Node 0, zone   Normal   7010   5706   2611    881    547    299    123     72     19     14   6159 
+100.0%  /home/denjo/Downloads/native_kit/stories15M.bin
+100.0%  /home/denjo/Downloads/native_kit/work/model_fresh.bin
+file                                                          seq GB/s matvec GB/s  walk ns
+/home/denjo/Downloads/native_kit/stories15M.bin                   10.1        13.0    11.77
+/home/denjo/Downloads/native_kit/work/model_fresh.bin             10.1        12.9    11.69
+### fresh_first
+Node 0, zone   Normal   6947   5706   2581    881    546    299    123     72     19     14   6159 
+100.0%  /home/denjo/Downloads/native_kit/stories15M.bin
+100.0%  /home/denjo/Downloads/native_kit/work/model_fresh.bin
+file                                                          seq GB/s matvec GB/s  walk ns
+/home/denjo/Downloads/native_kit/stories15M.bin                   10.1        13.1    11.68
+/home/denjo/Downloads/native_kit/work/model_fresh.bin             10.1        13.0    11.77
+### fresh_first
+Node 0, zone   Normal   6821   5722   2589    881    546    299    123     72     19     14   6159 
+100.0%  /home/denjo/Downloads/native_kit/stories15M.bin
+100.0%  /home/denjo/Downloads/native_kit/work/model_fresh.bin
+file                                                          seq GB/s matvec GB/s  walk ns
+/home/denjo/Downloads/native_kit/stories15M.bin                   10.1        13.0    11.61
+/home/denjo/Downloads/native_kit/work/model_fresh.bin             10.1        12.9    11.71
+### filler_first
+Node 0, zone   Normal   6768   5717   2589    881    547    299    123     72     19     14   6159 
+100.0%  /home/denjo/Downloads/native_kit/stories15M.bin
+100.0%  /home/denjo/Downloads/native_kit/work/model_fresh.bin
+file                                                          seq GB/s matvec GB/s  walk ns
+/home/denjo/Downloads/native_kit/stories15M.bin                   10.1        13.0    11.67
+/home/denjo/Downloads/native_kit/work/model_fresh.bin             10.1        12.9    11.56
+### filler_first
+Node 0, zone   Normal   6757   5686   2550    882    547    299    123     72     19     14   6159 
+100.0%  /home/denjo/Downloads/native_kit/stories15M.bin
+100.0%  /home/denjo/Downloads/native_kit/work/model_fresh.bin
+file                                                          seq GB/s matvec GB/s  walk ns
+/home/denjo/Downloads/native_kit/stories15M.bin                   10.1        13.0    11.53
+/home/denjo/Downloads/native_kit/work/model_fresh.bin             10.1        13.0    11.77
+### filler_first
+Node 0, zone   Normal   6075   5586   2520    882    547    299    123     72     19     14   6159 
+100.0%  /home/denjo/Downloads/native_kit/stories15M.bin
+100.0%  /home/denjo/Downloads/native_kit/work/model_fresh.bin
+file                                                          seq GB/s matvec GB/s  walk ns
+/home/denjo/Downloads/native_kit/stories15M.bin                   10.1        12.9    11.68
+/home/denjo/Downloads/native_kit/work/model_fresh.bin             10.1        12.9    11.73

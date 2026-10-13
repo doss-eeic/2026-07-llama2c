@@ -1,0 +1,6 @@
+case            median     min     max   vs A (paired median, wins)
+A_file_orig      207.5   201.5   303.2   1.000x 0/20
+B_file_fresh     212.2   205.0   427.5   1.015x 15/20
+C_tmpfs          209.8   203.1   379.1   1.008x 12/20
+D_anon4k         210.4   197.1   414.6   1.003x 11/20
+E_anonTHP        221.6   219.5   298.6   1.074x 15/20
