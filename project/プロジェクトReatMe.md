@@ -15,6 +15,7 @@
 - 一番早いのを選ぶ。(もしくは一番早い２つを組み合わせるのを基本構成に。)
 - runをするときに自動でこの構成が動くようにする。(とりあえずはmakeファイルで専用の作るのが良いかも)
 
+# cpu-profiler.py
 ## 仕組み
 <details>
 <summary>ディレクトリの構成はこのようになっていることが多い。</summary>
@@ -167,3 +168,83 @@ CPU 4〜7は2MBのL2キャッシュを共有していることが分かる。
 
 
 注意：index2が必ずL2とは限らない
+
+# benchmarkrunner.py
+
+CPUクラスを用いて，実際にpythonコードからshellを投げてベンチマークを取ってみる。そのまま分析もできるからPythonで一貫したい。
+
+## 基本コマンド
+例えば、CPU 4だけでllama2.cを実行する場合。
+```shell
+OMP_NUM_THREADS=1 \
+OMP_DYNAMIC=FALSE \
+taskset -c 4 \
+./build/omp-run ./build/stories15M.bin \
+    -n 256 \
+    -t 0 \
+    -s 42 \
+    -i "Once upon a time"
+```
+
+| 設定 | 意味 |
+|---|---|
+| `OMP_NUM_THREADS=1` | OpenMPのスレッド数を1に固定 |
+| `OMP_DYNAMIC=FALSE` | OpenMPによるスレッド数の自動調整を無効化 |
+| `taskset -c 4` | CPU 4のみでプログラムを実行 |
+| `./run` | llama2.cの実行ファイル |
+| `./stories15M.bin` | モデル |
+| `-n 256` | 最大256トークンまで実行 |
+| `-t 0` | Greedy decoding |
+| `-s 42` | 乱数シードを固定 |
+| `-i` | 入力プロンプト |
+
+> taskset はプロセスのCPU affinityを設定するLinuxのコマンド。
+
+注意：今のビルドが`make runomp CC=gcc`でできているか確認。
+
+## ベンチマークの取得
+
+今回は各工程の最適化を取らないため，ttsのみをベンチマークとする。
+```shell
+OMP_NUM_THREADS=1 \
+OMP_DYNAMIC=FALSE \
+taskset -c 4 \
+./build/omp-run ./build/stories15M.bin \
+    -n 256 \
+    -t 0 \
+    -s 42 \
+    -i "Once upon a time" \
+    > benchmark/test-output.txt \
+    2> benchmark/test-benchmark.log
+```
+
+## pythonから走らせる
+```python
+import re
+import subprocess
+
+result = subprocess.run(
+    [
+        "taskset", "-c", "4",
+        "./build/omp-run", "./build/stories15M.bin",
+        "-n", "256",
+        "-t", "0",
+        "-s", "42",
+        "-i", "Once upon a time",
+    ],
+    capture_output=True,
+    text=True,
+    check=True,
+)
+
+match = re.search(
+    r"achieved tok/s:\s*([\d.]+)",
+    result.stderr
+)
+
+if match is None:
+    raise RuntimeError("Benchmark result not found")
+
+tps = float(match.group(1))
+print(f"{tps:.2f} tokens/s")
+```
