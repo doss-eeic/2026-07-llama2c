@@ -6,6 +6,7 @@
 #include <time.h>
 #include <math.h>
 #include <string.h>
+#include <stdint.h>
 #include <fcntl.h>
 #if defined _WIN32
     #include "win.h"
@@ -549,84 +550,142 @@ static float* final_projection(Transformer* t) {
 }
 
 
-// Capture the end before printing so stage timings exclude log output.
-static double measure_time(struct timespec start_time, const char* message,
-                           int pos, int layer) {
-    struct timespec end_time;
-    clock_gettime(CLOCK_MONOTONIC, &end_time);
-    double elapsed_time = (end_time.tv_sec - start_time.tv_sec) +
-                          (end_time.tv_nsec - start_time.tv_nsec) / 1e9;
-    if (layer >= 0) {
-        fprintf(stderr, "[token:%d, layer:%d] %s: %.9f seconds\n",
-                pos, layer, message, elapsed_time);
-    } else {
-        fprintf(stderr, "[token:%d] %s: %.9f seconds\n",
-                pos, message, elapsed_time);
-    }
-    return elapsed_time;
+// ============================================================
+// Stage timing (compile with -DSTAGE_TIMING)
+//
+// forward() 内では配列に経過時間を記録するだけで何も出力しない。
+// 生成終了後に stage_timing_dump() で従来と同じ形式でまとめて出力する。
+// ============================================================
+
+#ifdef STAGE_TIMING
+
+enum {
+    ST_EMBED, ST_ATT_NORM, ST_QKV, ST_ROPE, ST_ATTN, ST_ATT_OUT,
+    ST_FFN_NORM, ST_FFN_UP, ST_SWIGLU, ST_FFN_DOWN, ST_FINAL,
+    N_STAGES
+};
+
+static const char* stage_names[N_STAGES] = {
+    "001:embedding-lookup", "002:attention-norm", "003:qkv-projection",
+    "004:apply-rope", "005:compute-attention", "006:attention-output",
+    "007:ffn-norm", "008:ffn-up-projection", "009:ffn-swiglu",
+    "010:ffn-down-projection", "011:final-projection",
+};
+
+// [steps][n_layers][N_STAGES]。層に属さないEMBED/FINALはlayer=0にまとめる。
+static int64_t* g_stage_ns = NULL;
+static int g_steps = 0;
+static int g_layers = 0;
+
+static inline int64_t now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
+
+// 経過時間を記録し、現在時刻を返す（次のステージの開始時刻になる）
+static inline int64_t stage_mark(int stage, int pos, int layer, int64_t t0) {
+    int64_t t1 = now_ns();
+    if (g_stage_ns != NULL && pos < g_steps) {
+        g_stage_ns[((size_t)pos * g_layers + layer) * N_STAGES + stage] = t1 - t0;
+    }
+    return t1;
+}
+
+static void stage_timing_init(int steps, int n_layers) {
+    g_steps = steps;
+    g_layers = n_layers;
+    size_t n = (size_t)steps * n_layers * N_STAGES;
+    g_stage_ns = malloc(n * sizeof(int64_t));
+    if (g_stage_ns == NULL) { fprintf(stderr, "malloc failed!\n"); exit(EXIT_FAILURE); }
+    // 計測中にページフォールトが起きないよう、ここで全ページに触れておく
+    memset(g_stage_ns, 0, n * sizeof(int64_t));
+}
+
+static void stage_timing_free(void) {
+    free(g_stage_ns);
+    g_stage_ns = NULL;
+}
+
+// 従来の measure_time() と同じ形式で出力する（bench_affinity.sh の集計で読める）
+static void stage_timing_dump(FILE* f, int n_pos) {
+    if (g_stage_ns == NULL) { return; }
+    if (n_pos > g_steps) { n_pos = g_steps; }
+    for (int pos = 0; pos < n_pos; pos++) {
+        int64_t* tok = g_stage_ns + (size_t)pos * g_layers * N_STAGES;
+        int64_t forward_ns = tok[ST_EMBED];
+        fprintf(f, "[token:%d] %s: %.9f seconds\n",
+                pos, stage_names[ST_EMBED], tok[ST_EMBED] / 1e9);
+        for (int l = 0; l < g_layers; l++) {
+            int64_t* lay = tok + (size_t)l * N_STAGES;
+            int64_t layer_ns = 0;
+            for (int st = ST_ATT_NORM; st <= ST_FFN_DOWN; st++) {
+                fprintf(f, "[token:%d, layer:%d] %s: %.9f seconds\n",
+                        pos, l, stage_names[st], lay[st] / 1e9);
+                layer_ns += lay[st];
+            }
+            fprintf(f, "[token:%d, layer:%d] 102:layer-compute-total: %.9f seconds\n",
+                    pos, l, layer_ns / 1e9);
+            forward_ns += layer_ns;
+        }
+        fprintf(f, "[token:%d] %s: %.9f seconds\n",
+                pos, stage_names[ST_FINAL], tok[ST_FINAL] / 1e9);
+        forward_ns += tok[ST_FINAL];
+        fprintf(f, "[token:%d] 103:forward-compute-total: %.9f seconds\n",
+                pos, forward_ns / 1e9);
+    }
+}
+
+#define T_START() int64_t _stage_t = now_ns()
+#define T_MARK(st, l) (_stage_t = stage_mark((st), pos, (l), _stage_t))
+
+#else
+
+#define T_START()
+#define T_MARK(st, l)
+
+#endif
 
 float* forward(Transformer* t, int token, int pos) {
-    struct timespec stage_start;
-    double forward_elapsed = 0.0;
+    T_START();
 
-    clock_gettime(CLOCK_MONOTONIC, &stage_start);
     embedding_lookup(t, token);
-    forward_elapsed += measure_time(stage_start, "001:embedding-lookup", pos, -1);
+    T_MARK(ST_EMBED, 0);
 
     for (int l = 0; l < t->config.n_layers; l++) {
-        double layer_elapsed = 0.0;
-
-        clock_gettime(CLOCK_MONOTONIC, &stage_start);
         attention_norm(t, l);
-        layer_elapsed += measure_time(stage_start, "002:attention-norm", pos, l);
+        T_MARK(ST_ATT_NORM, l);
 
-        clock_gettime(CLOCK_MONOTONIC, &stage_start);
         qkv_projection(t, l, pos);
-        layer_elapsed += measure_time(stage_start, "003:qkv-projection", pos, l);
+        T_MARK(ST_QKV, l);
 
-        clock_gettime(CLOCK_MONOTONIC, &stage_start);
         apply_rope(t, pos);
-        layer_elapsed += measure_time(stage_start, "004:apply-rope", pos, l);
+        T_MARK(ST_ROPE, l);
 
-        clock_gettime(CLOCK_MONOTONIC, &stage_start);
         compute_attention(t, l, pos);
-        layer_elapsed += measure_time(stage_start, "005:compute-attention", pos, l);
+        T_MARK(ST_ATTN, l);
 
-        clock_gettime(CLOCK_MONOTONIC, &stage_start);
         attention_output(t, l);
-        layer_elapsed += measure_time(stage_start, "006:attention-output", pos, l);
+        T_MARK(ST_ATT_OUT, l);
 
-        clock_gettime(CLOCK_MONOTONIC, &stage_start);
         ffn_norm(t, l);
-        layer_elapsed += measure_time(stage_start, "007:ffn-norm", pos, l);
+        T_MARK(ST_FFN_NORM, l);
 
-        clock_gettime(CLOCK_MONOTONIC, &stage_start);
         ffn_up_projection(t, l);
-        layer_elapsed += measure_time(stage_start, "008:ffn-up-projection", pos, l);
+        T_MARK(ST_FFN_UP, l);
 
-        clock_gettime(CLOCK_MONOTONIC, &stage_start);
         ffn_swiglu(t);
-        layer_elapsed += measure_time(stage_start, "009:ffn-swiglu", pos, l);
+        T_MARK(ST_SWIGLU, l);
 
-        clock_gettime(CLOCK_MONOTONIC, &stage_start);
         ffn_down_projection(t, l);
-        layer_elapsed += measure_time(stage_start, "010:ffn-down-projection", pos, l);
-
-        // Sum compute durations rather than including time spent printing logs.
-        forward_elapsed += layer_elapsed;
-        fprintf(stderr, "[token:%d, layer:%d] 102:layer-compute-total: %.9f seconds\n",
-                pos, l, layer_elapsed);
+        T_MARK(ST_FFN_DOWN, l);
     }
 
-    clock_gettime(CLOCK_MONOTONIC, &stage_start);
     float* logits = final_projection(t);
-    forward_elapsed += measure_time(stage_start, "011:final-projection", pos, -1);
-    fprintf(stderr, "[token:%d] 103:forward-compute-total: %.9f seconds\n",
-            pos, forward_elapsed);
+    T_MARK(ST_FINAL, 0);
+
     return logits;
 }
-
 
 // ----------------------------------------------------------------------------
 // The Byte Pair Encoding (BPE) Tokenizer that translates strings <-> tokens
@@ -1046,6 +1105,9 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         long end = time_in_ms();
         fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
     }
+    #ifdef STAGE_TIMING
+        stage_timing_dump(stderr, pos);
+    #endif
 
     free(prompt_tokens);
 }
@@ -1213,6 +1275,9 @@ int main(int argc, char *argv[]) {
     Transformer transformer;
     build_transformer(&transformer, checkpoint_path);
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
+    #ifdef STAGE_TIMING
+        stage_timing_init(steps, transformer.config.n_layers);
+    #endif
 
     // build the Tokenizer via the tokenizer .bin file
     Tokenizer tokenizer;
@@ -1233,6 +1298,9 @@ int main(int argc, char *argv[]) {
     }
 
     // memory and file handles cleanup
+    #ifdef STAGE_TIMING
+        stage_timing_free();
+    #endif
     free_sampler(&sampler);
     free_tokenizer(&tokenizer);
     free_transformer(&transformer);
