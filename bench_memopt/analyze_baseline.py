@@ -416,6 +416,15 @@ def main():
                 base["overhead_pct"] = pct
                 overheads.append((base["case"], pct))
 
+    # ---- OMP_WAIT_POLICY=active の効果（X_active と X、X_active_plain と X_plain） ----
+    wait_pairs = []
+    for row in summary:
+        name = row["case"]
+        if name.endswith("_active") or name.endswith("_active_plain"):
+            base = by_case.get(name.replace("_active", "", 1))
+            if base and row.get("runs") and base.get("runs"):
+                wait_pairs.append((base, row))
+
     # ---- summary.tsv ----
     fields = (
         ["case", "bin", "threads", "cpus", "runs", "tokens"]
@@ -459,6 +468,33 @@ def main():
             f"{fmt(r.get('spread_pct'), '7.1f')}%"
             f"{fmt(speedup, '8.3f')}{'x' if speedup else ' '}"
         )
+
+    if wait_pairs:
+        print("\n=== OMP_WAIT_POLICY=active vs default ===")
+        print(f"{'Case':<20}{'Layers':>16}{'Final':>16}{'Forward':>16}{'tok/s':>14}{'Change':>9}")
+        print(f"{'':<20}{'(ms) def->act':>16}{'(ms) def->act':>16}{'(ms) def->act':>16}{'def->act':>14}")
+
+        def pair(a, b, spec):
+            return f"{fmt(a, spec)}->{fmt(b, spec)}" if a is not None or b is not None else "-"
+
+        for base, act in wait_pairs:
+            if act.get("forward") and base.get("forward"):
+                change = (base["forward"] - act["forward"]) / base["forward"] * 100   # forward の短縮率
+                label = "fwd"
+            elif act.get("tok_s") and base.get("tok_s"):
+                change = (act["tok_s"] - base["tok_s"]) / base["tok_s"] * 100        # tok/s の増加率
+                label = "tok/s"
+            else:
+                change, label = None, ""
+            print(
+                f"{act['case']:<20}"
+                f"{pair(base.get('layers'), act.get('layers'), '5.3f'):>16}"
+                f"{pair(base.get('final'), act.get('final'), '5.3f'):>16}"
+                f"{pair(base.get('forward'), act.get('forward'), '5.3f'):>16}"
+                f"{pair(base.get('tok_s'), act.get('tok_s'), '3.0f'):>14}"
+                f"{fmt(change, '+7.1f')}% {label}"
+            )
+        print("Change: timing 版は forward の短縮率、plain 版は tok/s の増加率")
 
     # ---- 完了条件の判定 ----
     print("\n=== Checks ===")

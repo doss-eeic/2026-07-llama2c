@@ -54,7 +54,7 @@ sudo -v
 bash bench_memopt/run_baseline.sh
 ```
 
-所要時間は 3〜4 分ほど（7 構成 × 5 周、各実行の間に 3 秒待機）。
+所要時間は 5〜6 分ほど（11 構成 × 5 周、各実行の間に 3 秒待機）。
 
 集計だけやり直す場合:
 
@@ -81,10 +81,19 @@ python3 bench_memopt/analyze_baseline.py bench_memopt/baseline/<timestamp> --war
 | X4_2_2 | 4 | 4,5,8,9 | timing | E コア 2 クラスタにまたがる（A3 の比較用） |
 | P1_plain | 1 | 0 | plain | 計測コード自体の影響の確認 |
 | P4_HT_plain | 4 | 0-3 | plain | 同上 |
+| P2_active | 2 | 0,2 | timing | `OMP_WAIT_POLICY=active`（方針メモ A4 (a)） |
+| P4_HT_active | 4 | 0-3 | timing | 同上 |
+| X4_2_2_active | 4 | 4,5,8,9 | timing | 同上 |
+| P4_HT_active_plain | 4 | 0-3 | plain | 同上（計測コードなしの tok/s で比べる用） |
 
-- 7 構成を 1 周として 5 周する。周ごとに開始する構成をずらし、熱の影響が特定の構成に偏らないようにしている
-- 構成を追加・変更するときは `run_baseline.sh` の `CASES` を編集する（書式 `name|threads|cpus|bin`）。
-  `X` と `X_plain` の組があれば、集計で計測コードの影響が自動で計算される
+`_active` 以外の構成では `OMP_WAIT_POLICY` を設定しない（呼び出し元の環境に設定があっても消す）。
+
+- 11 構成を 1 周として 5 周する。周ごとに開始する構成をずらし、熱の影響が特定の構成に偏らないようにしている
+- 構成を追加・変更するときは `run_baseline.sh` の `CASES` を編集する（書式 `name|threads|cpus|bin[|wait]`。
+  `wait` は `OMP_WAIT_POLICY` の値で、省略すると設定しない）
+- 集計では、名前の組み合わせで自動的に比べる
+  - `X` と `X_plain`：計測コードの影響（完了条件の判定に使う）
+  - `X` と `X_active`、`X_plain` と `X_active_plain`：`OMP_WAIT_POLICY=active` の効果（`=== OMP_WAIT_POLICY=active vs default ===` の表。判定には使わない）
 
 ## run.c の計測モード（`-DSTAGE_TIMING`）
 

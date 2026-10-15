@@ -44,8 +44,11 @@ BIN_DIR="${OUT_DIR}/bin"
 
 # ==========================================
 # Benchmark cases
-# format: name|threads|cpus|bin
-#   bin: timing = STAGE_TIMING 版, plain = 計測コードなし（オーバーヘッド確認用）
+# format: name|threads|cpus|bin[|wait]
+#   bin:  timing = STAGE_TIMING 版, plain = 計測コードなし（オーバーヘッド確認用）
+#   wait: OMP_WAIT_POLICY の値（省略時は設定しない = 既定）。
+#         active にすると並列区間の間で待機スレッドが休眠しない（方針メモ A4 (a)）
+#   名前の末尾が _plain なら同名の timing 版と、_active なら _active を除いた構成と比べて集計する
 # ==========================================
 
 CASES=(
@@ -57,6 +60,11 @@ CASES=(
 
     "P1_plain|1|0|plain"
     "P4_HT_plain|4|0-3|plain"
+
+    "P2_active|2|0,2|timing|active"
+    "P4_HT_active|4|0-3|timing|active"
+    "X4_2_2_active|4|4,5,8,9|timing|active"
+    "P4_HT_active_plain|4|0-3|plain|active"
 )
 
 # ==========================================
@@ -116,6 +124,8 @@ bin_path() {
 export OMP_DYNAMIC=FALSE
 export OMP_PROC_BIND=TRUE
 export OMP_PLACES=threads
+# OMP_WAIT_POLICY は構成ごとに設定する（呼び出し元の環境の値は使わない）
+unset OMP_WAIT_POLICY
 
 run_model() {  # run_model <bin> <cpus> <stdout> <stderr>
     taskset -c "$2" "$1" "$MODEL" \
@@ -221,13 +231,19 @@ for ((r=1; r<=REPEATS; r++)); do
     # 周ごとに開始位置をずらし、熱の影響が特定の構成に偏らないようにする
     for ((k=0; k<n_cases; k++)); do
         spec=${CASES[$(( (k + r - 1) % n_cases ))]}
-        IFS='|' read -r name threads cpus bin <<< "$spec"
+        IFS='|' read -r name threads cpus bin wait <<< "$spec"
+        wait=${wait:-default}
 
         tag="${name}_r${r}"
         export OMP_NUM_THREADS="$threads"
+        if [[ "$wait" == "default" ]]; then
+            unset OMP_WAIT_POLICY
+        else
+            export OMP_WAIT_POLICY="$wait"
+        fi
 
-        printf '[%d/%d] %-12s threads=%s cpus=%-8s bin=%s\n' \
-            "$r" "$REPEATS" "$name" "$threads" "$cpus" "$bin"
+        printf '[%d/%d] %-18s threads=%s cpus=%-8s bin=%-6s wait=%s\n' \
+            "$r" "$REPEATS" "$name" "$threads" "$cpus" "$bin" "$wait"
 
         t0=$(date +%s.%N)
         perf stat -x, -e cycles,instructions,task-clock -o "$OUT_DIR/$tag.perf" -- \
