@@ -1,7 +1,8 @@
 # bench_memopt — 出力層メモリ最適化の計測
 
 `プロジェクト/output-layer-memory-optimization.md` の方針に沿って、stories15M の forward をステージ別に計測する。
-現在は **Step 1（ログを出さない計測モードでベースラインを取る）** まで。
+- **Step 1**：ログを出さない計測モードで forward 全体のベースラインを取る（`run_baseline.sh`）
+- **Step 2**：出力層だけを取り出した単体ベンチマークで、このマシンの上限と各案の伸びしろを測る（`run_cls.sh`、末尾の節）
 
 ## ファイル
 
@@ -11,7 +12,11 @@
 | `analyze_baseline.py` | 計測結果の集計（単体で再実行可能） |
 | `golden.sha256` | 正解出力の sha256（master の `run.c`、P4_HT）。無ければ `run_baseline.sh` が自動生成 |
 | `env/` | Step 0 で保存したマシン情報（`lscpu`、コア種別、L2/L3 共有、THP 設定など） |
-| `baseline/<timestamp>/` | 計測結果 |
+| `baseline/<timestamp>/` | Step 1 の計測結果 |
+| `bench_cls.c` | Step 2 の出力層単体ベンチマーク |
+| `run_cls.sh` | Step 2 の条件を一括で回す |
+| `analyze_cls.py` | Step 2 の集計（単体で再実行可能） |
+| `cls/<timestamp>/` | Step 2 の計測結果 |
 
 ## 前提
 
@@ -155,4 +160,72 @@ NG のときに見るところ:
 ```bash
 sudo sysctl kernel.perf_event_paranoid=4   # 再起動でも戻る
 powerprofilesctl set balanced
+```
+
+---
+
+# Step 2: 出力層の単体ベンチマーク
+
+## bench_cls
+
+出力層（`wcls`、32000×288 の行列とベクトルの積）だけを繰り返し実行し、1回あたりの時間と実効帯域を出す。
+スレッド数と配置は `run.c` と同じく `OMP_NUM_THREADS` / `OMP_PROC_BIND` / `OMP_PLACES` と `taskset` で外から指定する。
+
+```bash
+gcc -Ofast -fopenmp -march=native -falign-functions=64 -falign-loops=64 bench_memopt/bench_cls.c -lm -o bench_cls
+OMP_NUM_THREADS=4 OMP_PROC_BIND=TRUE OMP_PLACES=threads taskset -c 0-3 ./bench_cls --kernel fp32 --page 2m
+```
+
+| オプション | 値 | 意味 |
+|---|---|---|
+| `--kernel` | `fp32` | `run.c` の `matmul` と同じループ（現状） |
+| | `fp32_r4` | 4 行を同時に計算（A2） |
+| | `fp16` | 重みを fp16 にして F16C で変換（B1） |
+| | `int8` | 32 要素ごとにスケールを持つ int8、AVX-VNNI で内積（B2） |
+| | `read` | 重みを読んで足すだけ（帯域の上限の目安） |
+| | `none` | 何もしない（並列区間の起動と同期だけのコスト） |
+| `--page` | `file` | モデルファイルを `mmap` したまま読む（`run.c` と同じ） |
+| | `4k` / `2m` | 匿名メモリにコピーし、THP を無効 / 有効にする（`2m` が A1） |
+| `--src` | `model` / `synth` | `stories15M.bin` の重み / 乱数の重み（`--rows` を語彙数より大きくするときは `synth`） |
+| `--rows`, `--dim` | | 行列の大きさ（データ量のスイープに使う） |
+| `--split K` | | 同じ行列を K 回の並列区間に分けて読む（呼び出しごとの固定コストの測定） |
+| `--weights w0,w1,...` | | スレッドごとの行の配分比（P+E 分担の試作、A3）。省略時は均等 |
+| `--prefetch BYTES` | | `fp32_r4` のソフトウェアプリフェッチ距離 |
+| `--flush-mb N` | | 各反復の間に N MB の別バッファを読み、キャッシュを追い出す（他の層の重みを読んだ後を模す） |
+| `--min-time SEC` | | 計測時間（既定 0.5 秒、かつ 50 回以上） |
+
+出力は CSV 1 行（`--header` で列名）。主な列は次のとおり。
+
+| 列 | 意味 |
+|---|---|
+| `median_us`, `p10_us`, `p90_us`, `min_us` | 1 回（split 回の並列区間を含む）の時間 |
+| `gbps_median`, `gbps_best` | 読んだ重みのバイト数 ÷ 時間 |
+| `cpus` | 各スレッドが実際に動いた CPU（スレッド番号順） |
+| `anon_huge_kb` | 重みの領域のうち 2MB ページに載った量（`page=2m` で確認する。`file` は -1） |
+| `max_abs_err`, `argmax_ok` | fp32 の重みを double で計算した値との最大誤差と、argmax が一致したか |
+
+## run_cls.sh
+
+```bash
+bash bench_memopt/run_cls.sh                  # 全部（約 10 分）
+bash bench_memopt/run_cls.sh split pe         # 実験を選ぶ
+REPEATS=1 MIN_TIME=0.2 bash bench_memopt/run_cls.sh formats   # 短く回す
+```
+
+計測前の準備は Step 1 と同じ（AC 電源、EPP performance、`perf_event_paranoid` 1）。sudo は不要。
+各実行を `perf stat` で包み、平均周波数（`ghz` 列）も記録する。
+
+| 実験 | 内容 | 方針メモとの対応 |
+|---|---|---|
+| `formats` | `fp32`（file / 4k / 2m）、`fp32_r4`（プリフェッチ無し / 2KB）、`fp16`、`int8`、`read` × P1 / P4_HT / X4_2_2 / P4X | A1, A2, B1, B2 と上限 |
+| `size` | 乱数の重み 2〜64MB × `fp32` / `read` / `fp32` + 64MB 追い出し（P4_HT） | 第5節（L3 に収める） |
+| `split` | `none` / `fp32` を K = 1, 2, 4, 8, 16, 43 回に分割 × P1 / P4_HT × `OMP_WAIT_POLICY` 既定 / `active` | 1.2 節の固定コスト、A4 |
+| `pe` | P4X で均等分割 / 帯域比で重み付け × `fp32` / `int8` × `OMP_WAIT_POLICY` 既定 / `active` | A3 |
+
+P4X は P4_HT と X4_2_2 を合わせた 8 スレッド（CPU 0-3, 4, 5, 8, 9）。スレッド 0-3 が P コア、4-7 が E コア。
+
+結果は `cls/<timestamp>/` に保存する（`results.csv` が生データ、`summary.csv` が繰り返しの中央値）。集計だけやり直すときは次のとおり。
+
+```bash
+python3 bench_memopt/analyze_cls.py bench_memopt/cls/<timestamp>
 ```

@@ -1,2 +1,3 @@
 bench_memopt/baseline
 __pycache__/
+bench_memopt/cls
