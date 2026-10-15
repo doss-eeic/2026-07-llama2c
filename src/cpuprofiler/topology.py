@@ -4,17 +4,6 @@ from pathlib import Path
 
 SYS_CPU = Path("/sys/devices/system/cpu")
 
-def read(path, default=""):
-    try:
-        return Path(path).read_text().strip()
-    except OSError:
-        return default
-
-import os
-from pathlib import Path
-
-SYS_CPU = Path("/sys/devices/system/cpu")
-
 
 def read(path, default=""):
     try:
