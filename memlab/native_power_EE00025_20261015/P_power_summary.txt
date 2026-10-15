@@ -1,0 +1,12 @@
+median over rounds  (t1 = 1 thread on the pinned P-core, t4P = 4 threads on P-cores 0-3, w0 = mmap, w3 = aligned+hugepage)
+                   power-saver      balanced   performance
+seq GB/s                  10.8          10.6          26.5
+matvec GB/s               12.9          13.1          31.8
+t1_w0 tok/s              188.5         203.5         447.4
+t1_w3 tok/s              199.3         220.8         469.2
+t4P_w0 tok/s             280.3         571.8         630.5
+t4P_w3 tok/s             293.5         596.5         660.7
+
+power-saver: governor=powersave epp=power platform_profile=low-power
+balanced: governor=powersave epp=balance_performance platform_profile=balanced
+performance: governor=powersave epp=performance platform_profile=performance

@@ -1,0 +1,13 @@
+[14:44:40] downloading sources
+[14:44:42] model: /home/denjo/Downloads/native_kit/stories15M.bin
+[14:44:42] building
+[14:44:43] E1 tlbreach (fixed version)
+[14:44:43] P power profiles: performance balanced power-saver (original: balanced), 6 rounds
+[14:45:03]   round 1/6 done
+[14:45:22]   round 2/6 done
+[14:45:41]   round 3/6 done
+[14:46:01]   round 4/6 done
+[14:46:20]   round 5/6 done
+[14:46:39]   round 6/6 done
+[14:46:39] DONE. results: /home/denjo/llama_power_check/results_EE00025_20261015_144440.tar.gz
+[14:46:39] power profile restored to balanced
