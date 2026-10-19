@@ -75,6 +75,7 @@ CASES=(
     "P4_HT_active_int8x|4|0-3|timing|active|int8-exact"
 
     "P4X_active|8|0-3,4,5,8,9|timing|active"                   # 層も出力層も 8 スレッド（比較用）
+    "P4X_active_int8x|8|0-3,4,5,8,9|timing|active|int8-exact"  # 層も出力層も 8 スレッド、int8-exact
     "P4X_L4_active|8|0-3,4,5,8,9|timing|active|fp32|-L 4"      # 切替C
     "P4X_L4_active_int8x|8|0-3,4,5,8,9|timing|active|int8-exact|-L 4"
 )
