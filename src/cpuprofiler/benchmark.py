@@ -55,6 +55,7 @@ class BenchmarkResult:
     config: BenchmarkConfig
     tokens_per_second: float
     raw_stderr: str
+    elapsed_seconds: float | None = None
 
     @property
     def ms_per_token(self):

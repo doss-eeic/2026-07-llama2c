@@ -8,6 +8,14 @@ def main(*args):
     if len(sys.argv) == 1 or sys.argv[1] == "topology":
         CPUTopology().print_summary()
 
+    elif sys.argv[1] == "collect":
+        from .dataset import main as collect_main
+        collect_main(sys.argv[2:])
+
+    elif sys.argv[1] == "mock":
+        from .mock import main as mock_main
+        mock_main(sys.argv[2:])
+
     elif sys.argv[1] == "beam":
         print("Running beam search...")
         tuner = AutoTuner(CPUTopology(), BenchmarkRunner())

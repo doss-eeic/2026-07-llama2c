@@ -1,11 +1,14 @@
+from dataclasses import replace
+
 from .benchmark import BenchmarkConfig, BenchmarkRunner
 from .topology import CPUTopology
 
 class AutoTuner:
-    def __init__(self, topology: CPUTopology, runner: BenchmarkRunner):
+    def __init__(self, topology: CPUTopology, runner: BenchmarkRunner, base_config=None):
         self.topology = topology
         self.runner = runner
         self.history = []
+        self.base_config = base_config or BenchmarkConfig((), 1)
 
     def evaluate(self, config):
         result = self.runner.run(config)
@@ -30,7 +33,7 @@ class AutoTuner:
 
     def generate_fixed_candidates(self, args="All"):
         if args == "All":
-            return [BenchmarkConfig((cpu_id,), 1) for cpu_id in self.topology.cpus]
+            return [replace(self.base_config, cpus=(cpu_id,), threads=1) for cpu_id in self.topology.cpus]
         elif args == "Sample":
             return [
                 BenchmarkConfig((0,), 1),
@@ -56,8 +59,8 @@ class AutoTuner:
                     new_cpus = tuple(sorted(config.cpus + (cpu_id,)))
                     new_threads = min(len(new_cpus), self.topology.n_logical_cpus)
 
-                    new_candidates.add(BenchmarkConfig(new_cpus, new_threads))
-        return list(new_candidates)
+                    new_candidates.add(replace(config, cpus=new_cpus, threads=new_threads))
+        return sorted(new_candidates, key=lambda config: config.cpus)
     
     def beam_search(self, depth=0, max_depth=4, pre_results=None, n=3):
         if depth >= max_depth:
@@ -78,7 +81,7 @@ class AutoTuner:
             results.append((config, result))
 
         # 再帰的に次の深さの探索を行う
-        deeper_results = self.beam_search(depth + 1, max_depth, results)
+        deeper_results = self.beam_search(depth + 1, max_depth, results, n=n)
         results.extend(deeper_results)
 
         return results
