@@ -29,6 +29,13 @@
         #define CLS_VNNI 1
     #endif
 #endif
+#ifdef _OPENMP
+    #include <omp.h>
+#endif
+
+// 層の matmul / attention で計算するスレッド数 (-L)。0なら全スレッドを使う。
+static int g_layer_threads = 0;
+
 // ----------------------------------------------------------------------------
 // Transformer model
 
@@ -273,18 +280,39 @@ void softmax(float* x, int size) {
     }
 }
 
-void matmul(float* xout, float* x, float* w, int n, int d) {
-    // W (d,n) @ x (n,) -> xout (d,)
-    // by far the most amount of time is spent inside this little function
-    int i;
-    #pragma omp parallel for private(i)
-    for (i = 0; i < d; i++) {
-        float val = 0.0f;
-        for (int j = 0; j < n; j++) {
-            val += w[i * n + j] * x[j];
+
+// 並列区間の中で呼び、このスレッドが担当する [lo, hi) を返す。
+// 先頭 nt スレッドに均等に分け、それ以外のスレッドは空（何もせず区間の終わりで待つ）
+static inline void thread_share(int n, int nt, int* lo, int*hi) {
+    #ifdef _OPENMP
+        int t = omp_get_thread_num(), T = omp_get_num_threads();
+    #else
+        int t = 0, T = 1;
+    #endif
+        if (nt <= 0 || nt > T) { nt = T; }
+        if (t >= nt) { *lo = *hi = 0; return; }
+        *lo = (int)((long long)n * t / nt);
+        *hi = (int)((long long)n * (t + 1) / nt);
+}
+
+static void matmul_nt(float* xout, float* x, float* w, int n, int d, int nt) {
+    #pragma omp parallel
+    {
+        int lo, hi;
+        thread_share(d, nt, &lo, &hi);
+        for (int i = lo; i < hi; i++) {
+            float val = 0.0f;
+            for (int j = 0; j < n; j++) {
+                val += w[i * n + j] * x[j];
+            }
+            xout[i] = val;
         }
-        xout[i] = val;
     }
+}
+
+
+void matmul(float* xout, float* x, float* w, int n, int d) {
+    matmul_nt(xout, x, w, n, d, g_layer_threads);
 }
 
 // ----------------------------------------------------------------------------
@@ -612,7 +640,7 @@ static void classifier_matmul(Transformer* t, float* xout, float* x) {
     int n = t->config.dim;
     int d = t->config.vocab_size;
     if (c->type == CLS_FP32) {
-        matmul(xout, x, t->weights.wcls, n, d);
+        matmul_nt(xout, x, t->weights.wcls, n, d, 0);
         return;
     }
     if (c->type != CLS_FP16) { cls_quantize_x(c, x, n); }
@@ -762,51 +790,54 @@ static void compute_attention(Transformer* t, int l, int pos) {
     int kv_mul = p->n_heads / p->n_kv_heads;
     int loff = l * p->seq_len * kv_dim;
 
-    int h;
+    #pragma omp parallel
+    {
+        int h0, h1;
+        thread_share(p->n_heads, g_layer_threads, &h0, &h1);
+        for (int h = h0; h < h1; h++) {
 
-    #pragma omp parallel for private(h)
-    for (h = 0; h < p->n_heads; h++) {
+            float* q = s->q + h * head_size;
+            float* att = s->att + h * p->seq_len;
 
-        float* q = s->q + h * head_size;
-        float* att = s->att + h * p->seq_len;
+            // 1. Attention Score
+            for (int pos2 = 0; pos2 <= pos; pos2++) {
+                float* k = s->key_cache
+                        + loff
+                        + pos2 * kv_dim
+                        + (h / kv_mul) * head_size;
 
-        // 1. Attention Score
-        for (int pos2 = 0; pos2 <= pos; pos2++) {
-            float* k = s->key_cache
-                     + loff
-                     + pos2 * kv_dim
-                     + (h / kv_mul) * head_size;
+                float score = 0.0f;
 
-            float score = 0.0f;
+                for (int i = 0; i < head_size; i++) {
+                    score += q[i] * k[i];
+                }
 
-            for (int i = 0; i < head_size; i++) {
-                score += q[i] * k[i];
+                score /= sqrtf(head_size);
+                att[pos2] = score;
             }
 
-            score /= sqrtf(head_size);
-            att[pos2] = score;
-        }
+            // 2. Softmax
+            softmax(att, pos + 1);
 
-        // 2. Softmax
-        softmax(att, pos + 1);
+            // 3. Weighted Sum
+            float* xb = s->xb + h * head_size;
+            memset(xb, 0, head_size * sizeof(float));
 
-        // 3. Weighted Sum
-        float* xb = s->xb + h * head_size;
-        memset(xb, 0, head_size * sizeof(float));
+            for (int pos2 = 0; pos2 <= pos; pos2++) {
+                float* v = s->value_cache
+                        + loff
+                        + pos2 * kv_dim
+                        + (h / kv_mul) * head_size;
 
-        for (int pos2 = 0; pos2 <= pos; pos2++) {
-            float* v = s->value_cache
-                     + loff
-                     + pos2 * kv_dim
-                     + (h / kv_mul) * head_size;
+                float a = att[pos2];
 
-            float a = att[pos2];
-
-            for (int i = 0; i < head_size; i++) {
-                xb[i] += a * v[i];
+                for (int i = 0; i < head_size; i++) {
+                    xb[i] += a * v[i];
+                }
             }
         }
     }
+
 }
 
 
@@ -1635,6 +1666,7 @@ void error_usage() {
     fprintf(stderr, "  -y <string> (optional) system prompt in chat mode\n");
     fprintf(stderr, "  -q <string> output layer weights: fp32|fp16|int8|int8-exact, default: fp32\n");
     fprintf(stderr, "              int8-exact: int8 + fp32 rescoring, same output as fp32 (needs -t 0)\n");
+    fprintf(stderr, "  -L <int> threads for layer matmuls/attention (0 = all), default: 0\n");
     exit(EXIT_FAILURE);
 }
 
@@ -1669,6 +1701,7 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
         else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
         else if (argv[i][1] == 'q') { cls_name = argv[i + 1]; }
+        else if (argv[i][1] == 'L') { g_layer_threads = atoi(argv[i + 1]); }
         else { error_usage(); }
     }
 
@@ -1677,6 +1710,7 @@ int main(int argc, char *argv[]) {
     if (temperature < 0.0) temperature = 0.0;
     if (topp < 0.0 || 1.0 < topp) topp = 0.9;
     if (steps < 0) steps = 0;
+    if (g_layer_threads < 0) g_layer_threads = 0;
     ClsType cls_type = CLS_FP32;
     if (strcmp(cls_name, "fp32") == 0) { cls_type = CLS_FP32; }
     else if (strcmp(cls_name, "fp16") == 0) { cls_type = CLS_FP16; }

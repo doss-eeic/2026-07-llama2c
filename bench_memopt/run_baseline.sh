@@ -73,6 +73,10 @@ CASES=(
     "P4_HT_int8x|4|0-3|timing||int8-exact"
     "X4_2_2_int8x|4|4,5,8,9|timing||int8-exact"
     "P4_HT_active_int8x|4|0-3|timing|active|int8-exact"
+
+    "P4X_active|8|0-3,4,5,8,9|timing|active"                   # 層も出力層も 8 スレッド（比較用）
+    "P4X_L4_active|8|0-3,4,5,8,9|timing|active|fp32|-L 4"      # 切替C
+    "P4X_L4_active_int8x|8|0-3,4,5,8,9|timing|active|int8-exact|-L 4"
 )
 
 # ==========================================
@@ -101,9 +105,12 @@ epp=$(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/
 
 grep -q "STAGE_TIMING" run.c || die "run.c has no STAGE_TIMING code"
 for spec in "${CASES[@]}"; do
-    IFS='|' read -r _ _ _ _ _ cls <<< "$spec"
+    IFS='|' read -r _ _ _ _ _ cls args <<< "$spec"
     if [[ -n "$cls" && "$cls" != "fp32" ]]; then
         grep -q "\"$cls\"" run.c || die "run.c does not support -q $cls"
+    fi
+    if [[ "$args" == *"-L"* ]]; then
+        grep -q "argv\[i\]\[1\] == 'L'" run.c || die "run.c does not support -L"
     fi
 done
 
@@ -136,7 +143,7 @@ bin_path() {
 }
 
 export OMP_DYNAMIC=FALSE
-export OMP_PROC_BIND=TRUE
+export OMP_PROC_BIND=close
 export OMP_PLACES=threads
 # OMP_WAIT_POLICY は構成ごとに設定する（呼び出し元の環境の値は使わない）
 unset OMP_WAIT_POLICY
@@ -236,7 +243,7 @@ echo "Output directory: $OUT_DIR"
 # Run benchmarks
 # ==========================================
 
-echo "round,case,bin,threads,cpus,start,end,rc,sha_ok,cls" > "$OUT_DIR/runs.csv"
+echo "round,case,bin,threads,cpus,start,end,rc,sha_ok,cls,args" > "$OUT_DIR/runs.csv"
 
 n_cases=${#CASES[@]}
 n_fail=0
@@ -245,9 +252,10 @@ for ((r=1; r<=REPEATS; r++)); do
     # 周ごとに開始位置をずらし、熱の影響が特定の構成に偏らないようにする
     for ((k=0; k<n_cases; k++)); do
         spec=${CASES[$(( (k + r - 1) % n_cases ))]}
-        IFS='|' read -r name threads cpus bin wait cls <<< "$spec"
+        IFS='|' read -r name threads cpus bin wait cls args <<< "$spec"
         wait=${wait:-default}
         cls=${cls:-fp32}
+        read -r -a extra <<< "$args"
 
         tag="${name}_r${r}"
         export OMP_NUM_THREADS="$threads"
@@ -257,13 +265,13 @@ for ((r=1; r<=REPEATS; r++)); do
             export OMP_WAIT_POLICY="$wait"
         fi
 
-        printf '[%d/%d] %-18s threads=%s cpus=%-8s bin=%-6s wait=%-7s cls=%s\n' \
-            "$r" "$REPEATS" "$name" "$threads" "$cpus" "$bin" "$wait" "$cls"
+        printf '[%d/%d] %-18s threads=%s cpus=%-8s bin=%-6s wait=%-7s cls=%-10s args=%s\n' \
+            "$r" "$REPEATS" "$name" "$threads" "$cpus" "$bin" "$wait" "$cls" "$args"
 
         t0=$(date +%s.%N)
         perf stat -x, -e cycles,instructions,task-clock -o "$OUT_DIR/$tag.perf" -- \
             taskset -c "$cpus" "$(bin_path "$bin")" "$MODEL" \
-                -n "$STEPS" -t "$TEMPERATURE" -s "$SEED" -i "$PROMPT" -q "$cls" \
+                -n "$STEPS" -t "$TEMPERATURE" -s "$SEED" -i "$PROMPT" -q "$cls" "${extra[@]}" \
             > "$OUT_DIR/$tag.out" 2> "$OUT_DIR/$tag.log"
         rc=$?
         t1=$(date +%s.%N)
@@ -278,7 +286,7 @@ for ((r=1; r<=REPEATS; r++)); do
         fi
 
         # cpus は "0,2" のようにカンマを含むので引用符で囲む
-        echo "$r,$name,$bin,$threads,\"$cpus\",$t0,$t1,$rc,$sha_ok,$cls" >> "$OUT_DIR/runs.csv"
+        echo "$r,$name,$bin,$threads,\"$cpus\",$t0,$t1,$rc,$sha_ok,$cls,\"$args\"" >> "$OUT_DIR/runs.csv"
         sleep "$COOLDOWN"
     done
 done
