@@ -63,3 +63,62 @@ def run(config: BenchmarkConfig):
                        check=True, timeout=config.timeout)
     profile = parse_profile((output / "profile.jsonl").read_text())
     return summarize(profile["timings"], config.skip_tokens, config.stages)
+
+
+def main():
+    import csv
+    from datetime import datetime
+
+    configs = {
+        "P1":     (0,),
+        "P2":     (0, 2),
+        "P4_HT":  (0, 1, 2, 3),
+        "E4":     (4, 5, 6, 7),
+        "X4_2_2": (4, 5, 8, 9),
+        # P + E 混合
+        "P2E2":   (0, 2, 4, 5),
+        "P2E4":   (0, 2, 4, 5, 6, 7),
+
+        # P + SMT + E 混合
+        "P4E2":   (0, 1, 2, 3, 4, 5),
+        "P4E4":   (0, 1, 2, 3, 4, 5, 6, 7),
+        "P4X4":   (0, 1, 2, 3, 4, 5, 8, 9),
+
+        # 全コア利用
+        "P4E8":   tuple(range(12)),
+    }
+
+    output_root = ROOT / "results" / datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_root.mkdir(parents=True)
+
+    results = []
+
+    for name, cpus in configs.items():
+        config = BenchmarkConfig(
+            cpus=cpus,
+            threads=len(cpus),
+            output=output_root / name,
+        )
+
+        summary, stages = run(config)
+
+        row = {
+            "config": name,
+            "cpus": ",".join(map(str, cpus)),
+            **summary,
+            **{s["stage"]: s["ms_per_token"] for s in stages},
+        }
+        results.append(row)
+
+        print(f"{name}: {summary['forward_ms_per_token']:.3f} ms/token")
+
+    # CSV保存
+    keys = list(dict.fromkeys(k for row in results for k in row))
+    with (output_root / "summary.csv").open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=keys)
+        writer.writeheader()
+        writer.writerows(results)
+
+
+if __name__ == "__main__":
+    main()

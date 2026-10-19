@@ -13,8 +13,6 @@ htmlcov/
 /dist/
 
 # Native build outputs; keep the existing shared model fixture
-/build/*
-!/build/stories15M.bin
 /run
 /runq
 /testc
