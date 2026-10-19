@@ -312,6 +312,17 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     }
 }
 
+// per-stage time, summed over forward() calls (reset where the tok/s timer starts)
+// layers = the n_layers transformer blocks, final = final rmsnorm + classifier matmul
+typedef struct { double layers_s, final_s; long calls; } StageTiming;
+static StageTiming stage_timing;
+
+static double now_s(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return t.tv_sec + t.tv_nsec * 1e-9;
+}
+
 float* forward(Transformer* transformer, int token, int pos) {
 
     // a few convenience variables
@@ -330,6 +341,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     memcpy(x, content_row, dim*sizeof(*x));
 
     // forward all the layers
+    double t_layers = now_s();
     for(unsigned long long l = 0; l < p->n_layers; l++) {
 
         // attention rmsnorm
@@ -437,11 +449,16 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
     }
 
+    double t_final = now_s();
+
     // final rmsnorm
     rmsnorm(x, x, w->rms_final_weight, dim);
 
     // classifier into logits
     matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+    stage_timing.layers_s += t_final - t_layers;
+    stage_timing.final_s += now_s() - t_final;
+    stage_timing.calls++;
     return s->logits;
 }
 
@@ -853,7 +870,7 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         token = next;
 
         // init the timer here because the first iteration can be slower
-        if (start == 0) { start = time_in_ms(); }
+        if (start == 0) { start = time_in_ms(); stage_timing = (StageTiming){0}; }
     }
     printf("\n");
 
@@ -861,6 +878,11 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     if (pos > 1) {
         long end = time_in_ms();
         fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
+    }
+    if (stage_timing.calls > 0) {
+        double n = stage_timing.calls;
+        fprintf(stderr, "stage ms/token: layers=%.4f final=%.4f calls=%ld\n",
+                stage_timing.layers_s / n * 1e3, stage_timing.final_s / n * 1e3, stage_timing.calls);
     }
 
     free(prompt_tokens);
