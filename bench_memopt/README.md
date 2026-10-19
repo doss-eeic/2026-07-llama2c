@@ -55,7 +55,7 @@ sudo -v
 bash bench_memopt/run_baseline.sh
 ```
 
-所要時間は 5〜6 分ほど（11 構成 × 5 周、各実行の間に 3 秒待機）。
+所要時間は 7〜8 分ほど（15 構成 × 5 周、各実行の間に 3 秒待機）。
 
 集計だけやり直す場合:
 
@@ -86,15 +86,23 @@ python3 bench_memopt/analyze_baseline.py bench_memopt/baseline/<timestamp> --war
 | P4_HT_active | 4 | 0-3 | timing | 同上 |
 | X4_2_2_active | 4 | 4,5,8,9 | timing | 同上 |
 | P4_HT_active_plain | 4 | 0-3 | plain | 同上（計測コードなしの tok/s で比べる用） |
+| P1_int8x | 1 | 0 | timing | 出力層を `-q int8-exact`（方針メモ B4） |
+| P4_HT_int8x | 4 | 0-3 | timing | 同上 |
+| X4_2_2_int8x | 4 | 4,5,8,9 | timing | 同上 |
+| P4_HT_active_int8x | 4 | 0-3 | timing | 同上 + `OMP_WAIT_POLICY=active` |
 
 `_active` 以外の構成では `OMP_WAIT_POLICY` を設定しない（呼び出し元の環境に設定があっても消す）。
+`_int8x` 以外の構成は出力層が fp32（`-q fp32`）。`int8-exact` も出力は fp32 と同じなので、同じ `golden.sha256` で確認する。
 
-- 11 構成を 1 周として 5 周する。周ごとに開始する構成をずらし、熱の影響が特定の構成に偏らないようにしている
-- 構成を追加・変更するときは `run_baseline.sh` の `CASES` を編集する（書式 `name|threads|cpus|bin[|wait]`。
-  `wait` は `OMP_WAIT_POLICY` の値で、省略すると設定しない）
+- 15 構成を 1 周として 5 周する。周ごとに開始する構成をずらし、熱の影響が特定の構成に偏らないようにしている
+- 構成を追加・変更するときは `run_baseline.sh` の `CASES` を編集する（書式 `name|threads|cpus|bin[|wait[|cls]]`。
+  `wait` は `OMP_WAIT_POLICY` の値で、空か省略なら設定しない。`cls` は `run.c` の `-q` に渡す出力層の形式で、省略すると `fp32`）
 - 集計では、名前の組み合わせで自動的に比べる
   - `X` と `X_plain`：計測コードの影響（完了条件の判定に使う）
   - `X` と `X_active`、`X_plain` と `X_active_plain`：`OMP_WAIT_POLICY=active` の効果（`=== OMP_WAIT_POLICY=active vs default ===` の表。判定には使わない）
+  - `X` と `X_int8x`：出力層の B4 の効果（`=== Output layer: int8-exact (B4) vs fp32 ===` の表。判定には使わない）。
+    候補の行数（`run.c` が最後に stderr に出す1トークンあたりの平均・最大）も表示し、`summary.tsv` の `cand_mean` / `cand_max` に残す。
+    `FinGB/s` / `FwdGB/s` は、その形式で実際に読む出力層の重みのバイト数（int8 の値とスケール + 候補の行）で計算する
 
 ## run.c の計測モード（`-DSTAGE_TIMING`）
 
@@ -119,7 +127,7 @@ python3 bench_memopt/analyze_baseline.py bench_memopt/baseline/<timestamp> --war
 | `env/` | `bench_memopt/env/` のコピー |
 | `git.diff` | 未コミットの変更があった場合のみ |
 | `bin/` | 計測に使ったバイナリ（`run`, `run_timing`、golden 作成時は `run_master`） |
-| `runs.csv` | 各実行の周・構成・開始/終了時刻・終了コード・sha256 一致 |
+| `runs.csv` | 各実行の周・構成・開始/終了時刻・終了コード・sha256 一致・出力層の形式（`cls`） |
 | `<case>_r<N>.out` / `.log` / `.perf` | stdout / stderr（ステージ計測と tok/s）/ `perf stat` の出力 |
 | `turbostat.txt` | 計測全体を通した turbostat のログ（0.1 秒間隔） |
 | `summary.tsv` | 1 行 1 構成の集計結果 |

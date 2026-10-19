@@ -44,11 +44,14 @@ BIN_DIR="${OUT_DIR}/bin"
 
 # ==========================================
 # Benchmark cases
-# format: name|threads|cpus|bin[|wait]
+# format: name|threads|cpus|bin[|wait[|cls]]
 #   bin:  timing = STAGE_TIMING 版, plain = 計測コードなし（オーバーヘッド確認用）
-#   wait: OMP_WAIT_POLICY の値（省略時は設定しない = 既定）。
+#   wait: OMP_WAIT_POLICY の値（空または省略時は設定しない = 既定）。
 #         active にすると並列区間の間で待機スレッドが休眠しない（方針メモ A4 (a)）
-#   名前の末尾が _plain なら同名の timing 版と、_active なら _active を除いた構成と比べて集計する
+#   cls:  run.c の -q に渡す出力層の形式（省略時は fp32）。int8-exact（方針メモ B4）は
+#         出力が fp32 と同じなので、他の構成と同じく golden の sha256 で確認できる
+#   名前の末尾が _plain なら同名の timing 版と、_active なら _active を除いた構成と、
+#   _int8x なら _int8x を除いた構成と比べて集計する
 # ==========================================
 
 CASES=(
@@ -65,6 +68,11 @@ CASES=(
     "P4_HT_active|4|0-3|timing|active"
     "X4_2_2_active|4|4,5,8,9|timing|active"
     "P4_HT_active_plain|4|0-3|plain|active"
+
+    "P1_int8x|1|0|timing||int8-exact"
+    "P4_HT_int8x|4|0-3|timing||int8-exact"
+    "X4_2_2_int8x|4|4,5,8,9|timing||int8-exact"
+    "P4_HT_active_int8x|4|0-3|timing|active|int8-exact"
 )
 
 # ==========================================
@@ -92,6 +100,12 @@ epp=$(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/
 [[ "$epp" == "performance" ]] || warn "EPP is '$epp' (expected 'performance')"
 
 grep -q "STAGE_TIMING" run.c || die "run.c has no STAGE_TIMING code"
+for spec in "${CASES[@]}"; do
+    IFS='|' read -r _ _ _ _ _ cls <<< "$spec"
+    if [[ -n "$cls" && "$cls" != "fp32" ]]; then
+        grep -q "\"$cls\"" run.c || die "run.c does not support -q $cls"
+    fi
+done
 
 mkdir -p "$BIN_DIR" "$OUT_DIR/env"
 
@@ -222,7 +236,7 @@ echo "Output directory: $OUT_DIR"
 # Run benchmarks
 # ==========================================
 
-echo "round,case,bin,threads,cpus,start,end,rc,sha_ok" > "$OUT_DIR/runs.csv"
+echo "round,case,bin,threads,cpus,start,end,rc,sha_ok,cls" > "$OUT_DIR/runs.csv"
 
 n_cases=${#CASES[@]}
 n_fail=0
@@ -231,8 +245,9 @@ for ((r=1; r<=REPEATS; r++)); do
     # 周ごとに開始位置をずらし、熱の影響が特定の構成に偏らないようにする
     for ((k=0; k<n_cases; k++)); do
         spec=${CASES[$(( (k + r - 1) % n_cases ))]}
-        IFS='|' read -r name threads cpus bin wait <<< "$spec"
+        IFS='|' read -r name threads cpus bin wait cls <<< "$spec"
         wait=${wait:-default}
+        cls=${cls:-fp32}
 
         tag="${name}_r${r}"
         export OMP_NUM_THREADS="$threads"
@@ -242,13 +257,13 @@ for ((r=1; r<=REPEATS; r++)); do
             export OMP_WAIT_POLICY="$wait"
         fi
 
-        printf '[%d/%d] %-18s threads=%s cpus=%-8s bin=%-6s wait=%s\n' \
-            "$r" "$REPEATS" "$name" "$threads" "$cpus" "$bin" "$wait"
+        printf '[%d/%d] %-18s threads=%s cpus=%-8s bin=%-6s wait=%-7s cls=%s\n' \
+            "$r" "$REPEATS" "$name" "$threads" "$cpus" "$bin" "$wait" "$cls"
 
         t0=$(date +%s.%N)
         perf stat -x, -e cycles,instructions,task-clock -o "$OUT_DIR/$tag.perf" -- \
             taskset -c "$cpus" "$(bin_path "$bin")" "$MODEL" \
-                -n "$STEPS" -t "$TEMPERATURE" -s "$SEED" -i "$PROMPT" \
+                -n "$STEPS" -t "$TEMPERATURE" -s "$SEED" -i "$PROMPT" -q "$cls" \
             > "$OUT_DIR/$tag.out" 2> "$OUT_DIR/$tag.log"
         rc=$?
         t1=$(date +%s.%N)
@@ -263,7 +278,7 @@ for ((r=1; r<=REPEATS; r++)); do
         fi
 
         # cpus は "0,2" のようにカンマを含むので引用符で囲む
-        echo "$r,$name,$bin,$threads,\"$cpus\",$t0,$t1,$rc,$sha_ok" >> "$OUT_DIR/runs.csv"
+        echo "$r,$name,$bin,$threads,\"$cpus\",$t0,$t1,$rc,$sha_ok,$cls" >> "$OUT_DIR/runs.csv"
         sleep "$COOLDOWN"
     done
 done

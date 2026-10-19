@@ -50,6 +50,10 @@ LINE_RE = re.compile(
     r"([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?) seconds"
 )
 TOKS_RE = re.compile(r"achieved tok/s: ([0-9.]+)")
+CAND_RE = re.compile(r"int8-exact candidates per token: mean ([0-9.]+), max (\d+)")
+
+# int8 の出力層で、スケールを共有する要素数（run.c の CLS_GROUP）
+CLS_GROUP = 32
 
 # 完了条件（Step 1）
 MAX_OVERHEAD_PCT = 1.0
@@ -83,6 +87,23 @@ def read_model_config(path):
         "cls_bytes": cls_bytes,
         "forward_bytes": n_layers * per_layer * 4 + dim * 4 + cls_bytes,
     }
+
+
+def cls_bytes_for(model, cls, cand_mean=None):
+    """出力層（run.c の -q）の形式ごとに、1トークンで読む出力層の重みのバイト数。
+
+    int8 は値（1 バイト）と CLS_GROUP 要素ごとの fp32 スケール。
+    int8-exact はそれに、2段目で fp32 で計算し直す候補の行（平均）を足す。
+    """
+    n = model["vocab"] * model["dim"]
+    if cls == "fp16":
+        return n * 2
+    if cls in ("int8", "int8-exact"):
+        b = n + n // CLS_GROUP * 4
+        if cls == "int8-exact" and cand_mean:
+            b += cand_mean * model["dim"] * 4
+        return b
+    return model["cls_bytes"]
 
 
 def model_path_from_env(out_dir):
@@ -150,6 +171,12 @@ def parse_stage_log(path, n_layers):
 def parse_tok_s(path):
     m = TOKS_RE.search(path.read_text()) if path.exists() else None
     return float(m.group(1)) if m else None
+
+
+def parse_candidates(path):
+    """int8-exact のとき run.c が最後に出す候補の行数（1トークンあたりの平均・最大）。"""
+    m = CAND_RE.search(path.read_text()) if path.exists() else None
+    return (float(m.group(1)), int(m.group(2))) if m else (None, None)
 
 
 def parse_perf(path):
@@ -220,17 +247,21 @@ def read_runs_csv(path):
     """runs.csv を読む。
 
     初期の run_baseline.sh は cpus（"0,2" など）を引用符なしで書いていたので、
-    列が多すぎる行は先頭4列と末尾4列を固定とみなし、間を cpus として復元する。
+    列が多すぎる行は cpus（5列目）の前後の列を固定とみなし、間を cpus として復元する。
+    cls 列が無い古い結果は fp32 とみなす。
     """
     lines = path.read_text().splitlines()
     header = next(csv.reader(lines[:1]))
+    n_tail = len(header) - 5  # cpus より後ろの列数
     runs = []
     for row in csv.reader(lines[1:]):
         if not row:
             continue
         if len(row) > len(header):
-            row = row[:4] + [",".join(row[4:-4])] + row[-4:]
-        runs.append(dict(zip(header, row)))
+            row = row[:4] + [",".join(row[4:len(row) - n_tail])] + row[len(row) - n_tail:]
+        run = dict(zip(header, row))
+        run["cls"] = run.get("cls") or "fp32"
+        runs.append(run)
     return runs
 
 
@@ -329,7 +360,8 @@ def main():
         name = run["case"]
         if name not in case_info:
             case_order.append(name)
-            case_info[name] = {"threads": run["threads"], "cpus": run["cpus"], "bin": run["bin"]}
+            case_info[name] = {"threads": run["threads"], "cpus": run["cpus"], "bin": run["bin"],
+                               "cls": run["cls"]}
 
         tag = f"{name}_r{run['round']}"
         if run["rc"] != "0" or run["sha_ok"] != "1":
@@ -360,6 +392,7 @@ def main():
             tok_s = parse_tok_s(log)
 
         result["tok_s"] = tok_s
+        result["cand_mean"], result["cand_max"] = parse_candidates(log)
 
         perf = parse_perf(out_dir / f"{tag}.perf")
         if perf and perf["task_clock_ms"]:
@@ -392,11 +425,17 @@ def main():
         temps = [r.get("pkg_tmp_max") for r in rs if r.get("pkg_tmp_max") is not None]
         row["pkg_tmp_max"] = max(temps) if temps else None
         row["tokens"] = med(r.get("tokens") for r in rs)
+        row["cand_mean"] = med(r.get("cand_mean") for r in rs)
+        cand_max = [r["cand_max"] for r in rs if r.get("cand_max") is not None]
+        row["cand_max"] = max(cand_max) if cand_max else None
 
+        # GB/s は、その形式で実際に読む出力層の重みのバイト数で計算する
+        cls_bytes = cls_bytes_for(model, case_info[name]["cls"], row["cand_mean"])
         if row.get("final"):
-            row["final_gbps"] = model["cls_bytes"] / (row["final"] * 1e-3) / 1e9
+            row["final_gbps"] = cls_bytes / (row["final"] * 1e-3) / 1e9
         if row.get("forward"):
-            row["forward_gbps"] = model["forward_bytes"] / (row["forward"] * 1e-3) / 1e9
+            fwd_bytes = model["forward_bytes"] - model["cls_bytes"] + cls_bytes
+            row["forward_gbps"] = fwd_bytes / (row["forward"] * 1e-3) / 1e9
 
         # ばらつき: timing 版は forward の中央値、plain 版は tok/s で見る
         key = "forward" if case_info[name]["bin"] == "timing" else "tok_s"
@@ -425,12 +464,21 @@ def main():
             if base and row.get("runs") and base.get("runs"):
                 wait_pairs.append((base, row))
 
+    # ---- 出力層の B4（-q int8-exact）の効果（X_int8x と X） ----
+    int8x_pairs = []
+    for row in summary:
+        name = row["case"]
+        if name.endswith("_int8x"):
+            base = by_case.get(name[: -len("_int8x")])
+            if base and row.get("runs") and base.get("runs"):
+                int8x_pairs.append((base, row))
+
     # ---- summary.tsv ----
     fields = (
-        ["case", "bin", "threads", "cpus", "runs", "tokens"]
+        ["case", "bin", "cls", "threads", "cpus", "runs", "tokens"]
         + stage_names
         + ["final_gbps", "forward_gbps", "tok_s", "overhead_pct", "ghz", "ipc",
-           "bzy_mhz", "pkg_watt", "pkg_tmp_max", "spread_pct"]
+           "bzy_mhz", "pkg_watt", "pkg_tmp_max", "spread_pct", "cand_mean", "cand_max"]
         + [s + "_mean_all" for s in stage_names]
     )
     with (out_dir / "summary.tsv").open("w", newline="") as f:
@@ -448,13 +496,13 @@ def main():
 
     base_fwd = next((r["forward"] for r in summary if r.get("forward")), None)
     print("\n=== Benchmark Summary ===")
-    print(f"{'Case':<13}{'Layers':>9}{'Final':>9}{'Forward':>9}{'FinGB/s':>9}{'FwdGB/s':>9}"
+    print(f"{'Case':<20}{'Layers':>9}{'Final':>9}{'Forward':>9}{'FinGB/s':>9}{'FwdGB/s':>9}"
           f"{'tok/s':>8}{'GHz':>6}{'BzyMHz':>8}{'PkgW':>6}{'Tmp':>5}{'Spread':>8}{'Speedup':>9}")
-    print(f"{'':<13}{'(ms)':>9}{'(ms)':>9}{'(ms)':>9}")
+    print(f"{'':<20}{'(ms)':>9}{'(ms)':>9}{'(ms)':>9}")
     for r in summary:
         speedup = (base_fwd / r["forward"]) if base_fwd and r.get("forward") else None
         print(
-            f"{r['case']:<13}"
+            f"{r['case']:<20}"
             f"{fmt(r.get('layers'), '9.4f')}"
             f"{fmt(r.get('final'), '9.4f')}"
             f"{fmt(r.get('forward'), '9.4f')}"
@@ -495,6 +543,30 @@ def main():
                 f"{fmt(change, '+7.1f')}% {label}"
             )
         print("Change: timing 版は forward の短縮率、plain 版は tok/s の増加率")
+
+    if int8x_pairs:
+        print("\n=== Output layer: int8-exact (B4) vs fp32 ===")
+        print(f"{'Case':<20}{'Final':>16}{'Forward':>16}{'Final':>9}{'Forward':>9}{'Candidates':>16}")
+        print(f"{'':<20}{'(ms) fp32->x':>16}{'(ms) fp32->x':>16}{'change':>9}{'change':>9}{'mean / max':>16}")
+
+        def change(a, b):
+            return (a - b) / a * 100 if a and b else None   # 短縮率
+
+        def ms_pair(a, b):
+            return f"{fmt(a, '5.3f')}->{fmt(b, '5.3f')}"
+
+        for base, x in int8x_pairs:
+            cand = (f"{x['cand_mean']:.1f} / {x['cand_max']}"
+                    if x.get("cand_mean") is not None else "-")
+            print(
+                f"{x['case']:<20}"
+                f"{ms_pair(base.get('final'), x.get('final')):>16}"
+                f"{ms_pair(base.get('forward'), x.get('forward')):>16}"
+                f"{fmt(change(base.get('final'), x.get('final')), '+8.1f')}%"
+                f"{fmt(change(base.get('forward'), x.get('forward')), '+8.1f')}%"
+                f"{cand:>16}"
+            )
+        print("change: fp32 からの短縮率。Candidates: 2段目で fp32 で計算し直した行数（1トークンあたり）")
 
     # ---- 完了条件の判定 ----
     print("\n=== Checks ===")
