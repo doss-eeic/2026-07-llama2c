@@ -9,7 +9,7 @@
 # Everything (sources, model) is fetched from this branch on GitHub; no clone, no sudo.
 # usage:
 #   curl -fsSL https://raw.githubusercontent.com/doss-eeic/2026-07-llama2c/dev/sakurada/core_thread_check.sh -o core_thread_check.sh && bash core_thread_check.sh
-# options (env): ROUNDS=10  MODEL=path  DIR=work dir  LOCAL_SRC=checkout dir  FORCE=1 (no AC power / no profile switch)
+# options (env): ROUNDS=10  CASESET=team|pcore  MODEL=path  DIR=work dir  LOCAL_SRC=checkout dir  FORCE=1 (no AC power / no profile switch)
 set -uo pipefail
 export LC_ALL=C
 BASE="https://raw.githubusercontent.com/doss-eeic/2026-07-llama2c/dev/sakurada"
@@ -17,7 +17,7 @@ DIR="${DIR:-$HOME/llama_core_check}"
 ROUNDS="${ROUNDS:-10}"
 mkdir -p "$DIR/memlab"
 cd "$DIR"
-OUT="$DIR/results_$(hostname)_$(date +%Y%m%d_%H%M%S)"
+OUT="$DIR/results_$(hostname)_${CASESET:-team}_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$OUT"
 
 # name | threads | cpus. On a Core Ultra 5 225U: CPU 0-3 = 2 P-cores x 2 threads,
@@ -33,6 +33,20 @@ CASES=(
   "E1|1|4"           # one E-core
   "E2|2|4,5"         # two E-cores in the same cluster
 )
+# CASESET=pcore: re-measure the P-core configurations with and without CPU 0 (which may be disturbed
+# by interrupts and other OS work), plus X4_2_2 as a reference that was stable before.
+if [[ "${CASESET:-team}" == pcore ]]; then
+  CASES=(
+    "P1_c0|1|0"          # one P-core on CPU 0 (= P1 of the team table)
+    "P1_c2|1|2"          # one P-core on CPU 2 (other P-core)
+    "P1_c1|1|1"          # CPU 1 = second thread of the P-core that also runs CPU 0
+    "P2_c02|2|0,2"       # two P-cores, uses CPU 0 (= P2 of the team table)
+    "P2_c13|2|1,3"       # two P-cores, avoids CPU 0
+    "P3_HT|3|1-3"        # three threads on the P-cores, avoids CPU 0
+    "P4_HT|4|0-3"        # = P4_HT of the team table (cannot avoid CPU 0)
+    "X4_2_2|4|4,5,8,9"   # reference (stable on 2026-10-19)
+  )
+fi
 
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$OUT/progress.log"; }
 fetch() { # LOCAL_SRC=dir copies from a local checkout instead (for testing before a push)
@@ -97,7 +111,7 @@ cpu_state() {
 }
 {
   date -Is; hostname; uname -a; head -2 /etc/os-release
-  echo "ac_online=$ac rounds=$ROUNDS model=$MODEL original_profile=${orig:-n/a}"
+  echo "ac_online=$ac rounds=$ROUNDS caseset=${CASESET:-team} model=$MODEL original_profile=${orig:-n/a}"
   cpu_state
   echo; lscpu -e=CPU,CORE,MAXMHZ,MINMHZ
   echo; for c in /sys/devices/system/cpu/cpu[0-9]*; do
@@ -142,7 +156,7 @@ for ((r = 1; r <= ROUNDS; r++)); do
 done
 rm -f "$OUT/last.log"
 
-python3 - "$OUT/M_raw.txt" "$OUT/environment.txt" > "$OUT/M_summary.txt" <<'PY'
+python3 - "$OUT/M_raw.txt" "$OUT/environment.txt" "${CASES[@]%%|*}" > "$OUT/M_summary.txt" <<'PY'
 import sys, statistics as st
 from collections import defaultdict
 # v[(name, w)][metric][round]
@@ -155,7 +169,7 @@ for l in open(sys.argv[1]):
     d["tok"][r], d["layers"][r], d["final"][r] = float(tok), float(lay), float(fin)
     d["forward"][r] = float(lay) + float(fin)
     cpus[name] = cpu; shas.add(sha)
-names = [n for n in ["P1", "P2", "P4_HT", "E4", "X4_2_2", "E1", "E2"] if (n, "w0") in v and (n, "w3") in v]
+names = [n for n in sys.argv[3:] if (n, "w0") in v and (n, "w3") in v]
 med = lambda n, w, m: st.median(v[(n, w)][m].values())
 def paired(n, m):  # speedup of -w 3 over -w 0 for metric m (time: w0/w3, tok/s: w3/w0)
     a, b = v[(n, "w0")][m], v[(n, "w3")][m]
@@ -193,7 +207,14 @@ print(f"     huge pages only            x{s0/s3:.3f}")
 print(f"     stage-wise configs only    x{s0/e0:.3f}  (estimate)")
 print(f"     both                       x{s0/e3:.3f}  (estimate)")
 
-print("\n4) same core type, more threads (forward w0, tok/s):  "
+def spread(n, w, m):  # min-max over rounds, to show run-to-run stability
+    x = v[(n, w)][m].values(); return f"{min(x):.2f}-{max(x):.2f}"
+print("\n4) run-to-run range over rounds (min-max ms/token, -w 0)")
+print(f"{'config':<8}{'layers':>14}{'output':>14}{'forward':>14}")
+for n in names:
+    print(f"{n:<8}" + "".join(f"{spread(n,'w0',m):>14}" for m in ("layers", "final", "forward")))
+if "P1" not in names: sys.exit(0)
+print("\n5) same core type, more threads (forward w0, tok/s):  "
       + "P1->P2->P4_HT " + " -> ".join(f"{med(n,'w0','tok'):.0f}" for n in ["P1", "P2", "P4_HT"] if n in names)
       + "   E1->E2->E4/X4_2_2 " + " -> ".join(f"{med(n,'w0','tok'):.0f}" for n in ["E1", "E2", "E4", "X4_2_2"] if n in names))
 PY
