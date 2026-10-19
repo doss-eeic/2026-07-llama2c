@@ -36,6 +36,20 @@ runomp: run.c
 	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run
 	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq
 
+# Basic OpenMP build (no profiling).
+OMP_CFLAGS ?= -Ofast -fopenmp -march=native
+.PHONY: ompbuild
+ompbuild:
+	mkdir -p build
+	$(CC) $(OMP_CFLAGS) run.c -lm -o build/omp-run
+
+# Separate detailed build; never overwrites build/omp-run.
+DETAIL_CFLAGS ?= $(OMP_CFLAGS)
+.PHONY: detailbuild
+detailbuild:
+	mkdir -p build
+	$(CC) $(DETAIL_CFLAGS) -DLLAMA_PROFILE run_detail.c -lm -o build/omp-run-detail
+
 .PHONY: win64
 win64:
 	x86_64-w64-mingw32-gcc -Ofast -D_WIN32 -o run.exe -I. run.c win.c
@@ -74,3 +88,14 @@ testcc:
 clean:
 	rm -f run
 	rm -f runq
+
+# Persistent CPU-pinned worker pool (Linux); separate from reference/detail builds.
+STAY_CFLAGS ?= -Ofast -march=native -pthread
+.PHONY: staybuild stayprofile
+staybuild: run_stay.c run_detail.c
+	mkdir -p build
+	$(CC) $(STAY_CFLAGS) run_stay.c -lm -o build/stay-run
+
+stayprofile: run_stay.c run_detail.c
+	mkdir -p build
+	$(CC) $(STAY_CFLAGS) -DLLAMA_PROFILE run_stay.c -lm -o build/stay-run-detail

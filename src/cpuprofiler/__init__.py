@@ -16,6 +16,10 @@ def main(*args):
         from .mock import main as mock_main
         mock_main(sys.argv[2:])
 
+    elif sys.argv[1] in ("detail", "autotune_detail"):
+        from .autotune_detail import main as detail_main
+        detail_main(sys.argv[2:])
+
     elif sys.argv[1] == "beam":
         print("Running beam search...")
         tuner = AutoTuner(CPUTopology(), BenchmarkRunner())
