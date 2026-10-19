@@ -46,7 +46,19 @@ typedef struct {
     float* rms_final_weight; // (dim,)
     // (optional) classifier weights for the logits, on the last layer
     float* wcls;
+    // per-layer pointers used by forward(). In the file layout they point into the arrays above;
+    // -w 4/5 re-arrange the layer weights so that each layer is one contiguous block
+    struct LayerWeights* layers;
+    int fused; // -w 5: wq/wk/wv are one (dim+2*kv_dim, dim) matrix and w1/w3 one (2*hidden_dim, dim) matrix
+    void* relayout_buf; // anonymous mapping holding the re-arranged layer weights (NULL otherwise)
+    size_t relayout_buf_size;
 } TransformerWeights;
+
+typedef struct LayerWeights {
+    float *rms_att, *rms_ffn;    // (dim,)
+    float *wq, *wk, *wv, *wo;    // as in the file; with fused, wq is the start of the stacked wq|wk|wv
+    float *w1, *w2, *w3;         // as in the file; with fused, w1 is the start of the stacked w1|w3
+} LayerWeights;
 
 typedef struct {
     // current wave of activations
@@ -55,6 +67,8 @@ typedef struct {
     float *xb2; // an additional buffer just for convenience (dim,)
     float *hb; // buffer for hidden dimension in the ffn (hidden_dim,)
     float *hb2; // buffer for hidden dimension in the ffn (hidden_dim,)
+    float *qkv; // -w 5: output of the fused q|k|v matmul (dim + 2*kv_dim,)
+    float *hb13; // -w 5: output of the fused w1|w3 matmul (2*hidden_dim,)
     float *q; // query (dim,)
     float *k; // key (dim,)
     float *v; // value (dim,)
@@ -84,6 +98,8 @@ typedef enum {
     WEIGHTS_COPY = 1,         // copy into anonymous memory, keep the 28 byte offset, 4KB pages
     WEIGHTS_ALIGNED = 2,      // copy so that the weights start on a 2MB boundary, 4KB pages
     WEIGHTS_ALIGNED_HUGE = 3, // same as WEIGHTS_ALIGNED, plus MADV_HUGEPAGE (transparent 2MB pages)
+    WEIGHTS_LAYER_CONTIG = 4, // same as 3, plus each layer's weights re-arranged into one contiguous block
+    WEIGHTS_FUSED = 5,        // same as 4, plus q|k|v and w1|w3 stacked so they are one matmul each
 } WeightsMode;
 
 static const char* weights_mode_name(int mode) {
@@ -92,6 +108,8 @@ static const char* weights_mode_name(int mode) {
         case WEIGHTS_COPY: return "copy";
         case WEIGHTS_ALIGNED: return "aligned";
         case WEIGHTS_ALIGNED_HUGE: return "aligned+hugepage";
+        case WEIGHTS_LAYER_CONTIG: return "hugepage+layer-contiguous";
+        case WEIGHTS_FUSED: return "hugepage+layer-contiguous+fused";
         default: return "unknown";
     }
 }
@@ -105,12 +123,14 @@ void malloc_run_state(RunState* s, Config* p) {
     s->hb = calloc(p->hidden_dim, sizeof(float));
     s->hb2 = calloc(p->hidden_dim, sizeof(float));
     s->q = calloc(p->dim, sizeof(float));
+    s->qkv = calloc(p->dim + 2 * kv_dim, sizeof(float));
+    s->hb13 = calloc(2 * p->hidden_dim, sizeof(float));
     s->key_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
     s->value_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
     s->att = calloc(p->n_heads * p->seq_len, sizeof(float));
     s->logits = calloc(p->vocab_size, sizeof(float));
     // ensure all mallocs went fine
-    if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
+    if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q || !s->qkv || !s->hb13
      || !s->key_cache || !s->value_cache || !s->att || !s->logits) {
         fprintf(stderr, "malloc failed!\n");
         exit(EXIT_FAILURE);
@@ -124,6 +144,8 @@ void free_run_state(RunState* s) {
     free(s->hb);
     free(s->hb2);
     free(s->q);
+    free(s->qkv);
+    free(s->hb13);
     free(s->att);
     free(s->logits);
     free(s->key_cache);
@@ -161,6 +183,60 @@ void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared
     w->wcls = shared_weights ? w->token_embedding_table : ptr;
 }
 
+void set_layer_pointers(TransformerWeights *w, Config* p) {
+    // point every layer at its slice of the file-layout arrays
+    int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
+    unsigned long long dim = p->dim, hidden_dim = p->hidden_dim;
+    w->layers = malloc(p->n_layers * sizeof(LayerWeights));
+    if (!w->layers) { fprintf(stderr, "malloc failed!\n"); exit(EXIT_FAILURE); }
+    for (unsigned long long l = 0; l < (unsigned long long)p->n_layers; l++) {
+        LayerWeights* lw = &w->layers[l];
+        lw->rms_att = w->rms_att_weight + l * dim;
+        lw->rms_ffn = w->rms_ffn_weight + l * dim;
+        lw->wq = w->wq + l * dim * dim;
+        lw->wk = w->wk + l * dim * kv_dim;
+        lw->wv = w->wv + l * dim * kv_dim;
+        lw->wo = w->wo + l * dim * dim;
+        lw->w1 = w->w1 + l * dim * hidden_dim;
+        lw->w2 = w->w2 + l * dim * hidden_dim;
+        lw->w3 = w->w3 + l * dim * hidden_dim;
+    }
+    w->fused = 0;
+    w->relayout_buf = NULL;
+    w->relayout_buf_size = 0;
+}
+
+#if !defined _WIN32
+void relayout_layers(TransformerWeights *w, Config* p, int fused) {
+    // copy each layer's matmul weights into one contiguous block, in the order forward() reads them:
+    //   wq wk wv wo w1 w3 w2   (with fused, wq|wk|wv and w1|w3 are then single stacked matrices)
+    // the rmsnorm weights and the classifier stay where they are
+    const size_t huge = 2 * 1024 * 1024;
+    int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
+    size_t dim = p->dim, hidden_dim = p->hidden_dim;
+    size_t per_layer = dim * dim * 2 + dim * kv_dim * 2 + dim * hidden_dim * 3; // floats
+    w->relayout_buf_size = p->n_layers * per_layer * sizeof(float) + huge;
+    char* base = mmap(NULL, w->relayout_buf_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (base == MAP_FAILED) { fprintf(stderr, "mmap failed!\n"); exit(EXIT_FAILURE); }
+    if (madvise(base, w->relayout_buf_size, MADV_HUGEPAGE) != 0) { fprintf(stderr, "madvise failed!\n"); exit(EXIT_FAILURE); }
+    float* dst = (float*)(((uintptr_t)base + huge - 1) & ~(uintptr_t)(huge - 1));
+    for (int l = 0; l < p->n_layers; l++) {
+        LayerWeights* lw = &w->layers[l];
+        float* src[7] = { lw->wq, lw->wk, lw->wv, lw->wo, lw->w1, lw->w3, lw->w2 };
+        float** ptr[7] = { &lw->wq, &lw->wk, &lw->wv, &lw->wo, &lw->w1, &lw->w3, &lw->w2 };
+        size_t n[7] = { dim * dim, kv_dim * dim, kv_dim * dim, dim * dim,
+                        hidden_dim * dim, hidden_dim * dim, dim * hidden_dim };
+        for (int m = 0; m < 7; m++) {
+            memcpy(dst, src[m], n[m] * sizeof(float));
+            *ptr[m] = dst; // rows of wq, wk, wv (and of w1, w3) follow each other: stacked matrices
+            dst += n[m];
+        }
+    }
+    w->fused = fused;
+    w->relayout_buf = base;
+}
+#endif
+
 #if !defined _WIN32
 float* copy_weights(char* checkpoint, ssize_t file_size, int mode, void** buf, size_t* buf_size) {
     // copy the weights (everything after the Config header) into anonymous memory,
@@ -176,7 +252,7 @@ float* copy_weights(char* checkpoint, ssize_t file_size, int mode, void** buf, s
     // WEIGHTS_COPY keeps the same 28 byte misalignment as the mmap'd file, the others start on the boundary
     char* dst = mode == WEIGHTS_COPY ? aligned + header : aligned;
     // must be decided before the pages are first touched (by the fread below)
-    if (madvise(base, *buf_size, mode == WEIGHTS_ALIGNED_HUGE ? MADV_HUGEPAGE : MADV_NOHUGEPAGE) != 0) {
+    if (madvise(base, *buf_size, mode >= WEIGHTS_ALIGNED_HUGE ? MADV_HUGEPAGE : MADV_NOHUGEPAGE) != 0) {
         fprintf(stderr, "madvise failed!\n"); exit(EXIT_FAILURE);
     }
     FILE *file = fopen(checkpoint, "rb");
@@ -224,6 +300,10 @@ void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weigh
 #endif
     }
     memory_map_weights(weights, config, weights_ptr, shared_weights);
+    set_layer_pointers(weights, config);
+#if !defined _WIN32
+    if (weights_mode >= WEIGHTS_LAYER_CONTIG) { relayout_layers(weights, config, weights_mode == WEIGHTS_FUSED); }
+#endif
 }
 
 long anon_huge_pages_kb() {
@@ -256,6 +336,8 @@ void free_transformer(Transformer* t) {
     if (t->data != MAP_FAILED) { munmap(t->data, t->file_size); }
     if (t->fd != -1) { close(t->fd); }
     if (t->weights_buf != NULL) { munmap(t->weights_buf, t->weights_buf_size); }
+    if (t->weights.relayout_buf != NULL) { munmap(t->weights.relayout_buf, t->weights.relayout_buf_size); }
+    free(t->weights.layers);
     // free the RunState buffers
     free_run_state(&t->state);
 }
@@ -344,8 +426,10 @@ float* forward(Transformer* transformer, int token, int pos) {
     double t_layers = now_s();
     for(unsigned long long l = 0; l < p->n_layers; l++) {
 
+        LayerWeights* lw = &w->layers[l];
+
         // attention rmsnorm
-        rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
+        rmsnorm(s->xb, x, lw->rms_att, dim);
 
         // key and value point to the kv cache
         int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
@@ -353,9 +437,17 @@ float* forward(Transformer* transformer, int token, int pos) {
         s->v = s->value_cache + loff + pos * kv_dim;
 
         // qkv matmuls for this position
-        matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
-        matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
-        matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
+        if (w->fused) {
+            // one matmul over the stacked wq|wk|wv, then scatter (each output row is computed exactly as before)
+            matmul(s->qkv, s->xb, lw->wq, dim, dim + 2 * kv_dim);
+            memcpy(s->q, s->qkv, dim * sizeof(float));
+            memcpy(s->k, s->qkv + dim, kv_dim * sizeof(float));
+            memcpy(s->v, s->qkv + dim + kv_dim, kv_dim * sizeof(float));
+        } else {
+            matmul(s->q, s->xb, lw->wq, dim, dim);
+            matmul(s->k, s->xb, lw->wk, dim, kv_dim);
+            matmul(s->v, s->xb, lw->wv, dim, kv_dim);
+        }
 
         // RoPE relative positional encoding: complex-valued rotate q and k in each head
         for (int i = 0; i < dim; i+=2) {
@@ -415,7 +507,7 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // final matmul to get the output of the attention
-        matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
+        matmul(s->xb2, s->xb, lw->wo, dim, dim);
 
         // residual connection back into x
         for (int i = 0; i < dim; i++) {
@@ -423,25 +515,33 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // ffn rmsnorm
-        rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
+        rmsnorm(s->xb, x, lw->rms_ffn, dim);
 
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
-        matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
-        matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
+        float *hb = s->hb, *hb2 = s->hb2;
+        if (w->fused) {
+            // one matmul over the stacked w1|w3: first hidden_dim outputs are w1(x), the rest w3(x)
+            matmul(s->hb13, s->xb, lw->w1, dim, 2 * hidden_dim);
+            hb = s->hb13;
+            hb2 = s->hb13 + hidden_dim;
+        } else {
+            matmul(hb, s->xb, lw->w1, dim, hidden_dim);
+            matmul(hb2, s->xb, lw->w3, dim, hidden_dim);
+        }
 
         // SwiGLU non-linearity
         for (int i = 0; i < hidden_dim; i++) {
-            float val = s->hb[i];
+            float val = hb[i];
             // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
             val *= (1.0f / (1.0f + expf(-val)));
             // elementwise multiply with w3(x)
-            val *= s->hb2[i];
-            s->hb[i] = val;
+            val *= hb2[i];
+            hb[i] = val;
         }
 
         // final matmul to get the output of the ffn
-        matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);
+        matmul(s->xb, hb, lw->w2, hidden_dim, dim);
 
         // residual connection
         for (int i = 0; i < dim; i++) {
@@ -1007,6 +1107,7 @@ void error_usage() {
     fprintf(stderr, "  -m <string> mode: generate|chat, default: generate\n");
     fprintf(stderr, "  -y <string> (optional) system prompt in chat mode\n");
     fprintf(stderr, "  -w <int>    weights placement: 0=mmap (default) 1=copy 2=aligned 3=aligned+hugepage\n");
+    fprintf(stderr, "              4=3+layer-contiguous 5=4+fused qkv,w1|w3 matmuls\n");
     exit(EXIT_FAILURE);
 }
 
@@ -1049,7 +1150,7 @@ int main(int argc, char *argv[]) {
     if (temperature < 0.0) temperature = 0.0;
     if (topp < 0.0 || 1.0 < topp) topp = 0.9;
     if (steps < 0) steps = 0;
-    if (weights_mode < WEIGHTS_MMAP || weights_mode > WEIGHTS_ALIGNED_HUGE) { error_usage(); }
+    if (weights_mode < WEIGHTS_MMAP || weights_mode > WEIGHTS_FUSED) { error_usage(); }
 
     // build the Transformer via the model .bin file
     Transformer transformer;

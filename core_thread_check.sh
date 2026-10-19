@@ -9,15 +9,17 @@
 # Everything (sources, model) is fetched from this branch on GitHub; no clone, no sudo.
 # usage:
 #   curl -fsSL https://raw.githubusercontent.com/doss-eeic/2026-07-llama2c/dev/sakurada/core_thread_check.sh -o core_thread_check.sh && bash core_thread_check.sh
-# options (env): ROUNDS=10  CASESET=team|pcore  MODEL=path  DIR=work dir  LOCAL_SRC=checkout dir  FORCE=1 (no AC power / no profile switch)
+# options (env): ROUNDS=10  CASESET=team|pcore  MODES="0 3" (run.c -w modes; the first is the baseline)
+#                MODEL=path  DIR=work dir  LOCAL_SRC=checkout dir  FORCE=1 (no AC power / no profile switch)
 set -uo pipefail
 export LC_ALL=C
 BASE="https://raw.githubusercontent.com/doss-eeic/2026-07-llama2c/dev/sakurada"
 DIR="${DIR:-$HOME/llama_core_check}"
 ROUNDS="${ROUNDS:-10}"
+MODES="${MODES:-0 3}"
 mkdir -p "$DIR/memlab"
 cd "$DIR"
-OUT="$DIR/results_$(hostname)_${CASESET:-team}_$(date +%Y%m%d_%H%M%S)"
+OUT="$DIR/results_$(hostname)_${CASESET:-team}_w${MODES// /}_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$OUT"
 
 # name | threads | cpus. On a Core Ultra 5 225U: CPU 0-3 = 2 P-cores x 2 threads,
@@ -111,7 +113,7 @@ cpu_state() {
 }
 {
   date -Is; hostname; uname -a; head -2 /etc/os-release
-  echo "ac_online=$ac rounds=$ROUNDS caseset=${CASESET:-team} model=$MODEL original_profile=${orig:-n/a}"
+  echo "ac_online=$ac rounds=$ROUNDS caseset=${CASESET:-team} modes=$MODES model=$MODEL original_profile=${orig:-n/a}"
   cpu_state
   echo; lscpu -e=CPU,CORE,MAXMHZ,MINMHZ
   echo; for c in /sys/devices/system/cpu/cpu[0-9]*; do
@@ -146,9 +148,10 @@ run_case() { # name threads cpus mode round -> one RAW line
 cat "$MODEL" > /dev/null
 log "M warm-up round"
 for spec in "${CASES[@]}"; do IFS='|' read -r n th cp <<< "$spec"; run_case "$n" "$th" "$cp" 0 0 > /dev/null; done
-log "M $(( ${#CASES[@]} * 2 )) combinations x $ROUNDS rounds (random order each round)"
+nmodes=$(wc -w <<< "$MODES")
+log "M $(( ${#CASES[@]} * nmodes )) combinations (modes: $MODES) x $ROUNDS rounds (random order each round)"
 for ((r = 1; r <= ROUNDS; r++)); do
-  for spec in $(for s in "${CASES[@]}"; do echo "$s|0"; echo "$s|3"; done | shuf); do
+  for spec in $(for s in "${CASES[@]}"; do for m in $MODES; do echo "$s|$m"; done; done | shuf); do
     IFS='|' read -r n th cp w <<< "$spec"
     run_case "$n" "$th" "$cp" "$w" "$r" >> "$OUT/M_raw.txt"
   done
@@ -156,10 +159,10 @@ for ((r = 1; r <= ROUNDS; r++)); do
 done
 rm -f "$OUT/last.log"
 
-python3 - "$OUT/M_raw.txt" "$OUT/environment.txt" "${CASES[@]%%|*}" > "$OUT/M_summary.txt" <<'PY'
-import sys, statistics as st
+MODES="$MODES" python3 - "$OUT/M_raw.txt" "$OUT/environment.txt" "${CASES[@]%%|*}" > "$OUT/M_summary.txt" <<'PY'
+import os, sys, statistics as st
 from collections import defaultdict
-# v[(name, w)][metric][round]
+# v[(name, mode)][metric][round]
 v = defaultdict(lambda: defaultdict(dict)); shas = set(); cpus = {}
 for l in open(sys.argv[1]):
     f = l.split()
@@ -169,54 +172,62 @@ for l in open(sys.argv[1]):
     d["tok"][r], d["layers"][r], d["final"][r] = float(tok), float(lay), float(fin)
     d["forward"][r] = float(lay) + float(fin)
     cpus[name] = cpu; shas.add(sha)
-names = [n for n in sys.argv[3:] if (n, "w0") in v and (n, "w3") in v]
+modes = ["w" + m for m in os.environ["MODES"].split()]
+base = modes[0]
+names = [n for n in sys.argv[3:] if all((n, m) in v for m in modes)]
 med = lambda n, w, m: st.median(v[(n, w)][m].values())
-def paired(n, m):  # speedup of -w 3 over -w 0 for metric m (time: w0/w3, tok/s: w3/w0)
-    a, b = v[(n, "w0")][m], v[(n, "w3")][m]
+def paired(n, new, old, m):  # speedup of mode new over mode old (time: old/new, tok/s: new/old)
+    a, b = v[(n, old)][m], v[(n, new)][m]
     rs = [(b[r] / a[r]) if m == "tok" else (a[r] / b[r]) for r in a if r in b]
     return st.median(rs), sum(x > 1 for x in rs), len(rs)
+cell = lambda t: f"{t[0]:.3f}x {t[1]:>2}/{t[2]:<2}"
 
 print(f"outputs: {len(shas)} distinct " + ("(OK, all identical)" if len(shas) == 1 else "(MISMATCH!)"))
 print("[" + next((l.strip() for l in open(sys.argv[2]) if l.startswith("profile=")), "") + "]")
+print("modes: " + " ".join(modes) + f"   (baseline {base}; -w 0 mmap, 3 hugepage, 4 +layer-contiguous, 5 +fused qkv/w1w3)")
 
-print("\n1) ms/token per stage (median), same layout as the team's Day4 plan-2 table")
-print(f"{'config':<8}{'CPU':<10}{'layers w0':>10}{'w3':>8}{'output w0':>11}{'w3':>8}{'forward w0':>12}{'w3':>8}{'tok/s w0':>10}{'w3':>8}")
-for n in names:
-    print(f"{n:<8}{cpus[n]:<10}" + "".join(
-        f"{med(n,'w0',m):>{wd}.3f}{med(n,'w3',m):>8.3f}" if m != "tok" else f"{med(n,'w0',m):>{wd}.0f}{med(n,'w3',m):>8.0f}"
-        for m, wd in (("layers", 10), ("final", 11), ("forward", 12), ("tok", 10))))
+print("\n1) ms/token per stage and tok/s (median over rounds)")
+for metric, fmt in (("layers", "{:.3f}"), ("final", "{:.3f}"), ("forward", "{:.3f}"), ("tok", "{:.0f}")):
+    label = {"layers": "layers (ms)", "final": "output layer (ms)", "forward": "forward (ms)", "tok": "tok/s"}[metric]
+    print(f"  {label}")
+    print(f"  {'config':<8}{'CPU':<10}" + "".join(f"{m:>9}" for m in modes))
+    for n in names:
+        print(f"  {n:<8}{cpus[n]:<10}" + "".join(f"{fmt.format(med(n, m, metric)):>9}" for m in modes))
 
-print("\n2) huge-page speedup per stage (-w 3 vs -w 0, paired median over rounds, wins)")
-print(f"{'config':<8}{'layers':>16}{'output layer':>18}{'forward':>16}")
-for n in names:
-    print(f"{n:<8}" + "".join(f"{paired(n,m)[0]:>9.3f}x {paired(n,m)[1]:>2}/{paired(n,m)[2]:<2}" for m in ("layers", "final", "forward")))
+print(f"\n2) speedup vs baseline {base} (paired median over rounds, wins)")
+for m in modes[1:]:
+    print(f"  {m} vs {base}")
+    print(f"  {'config':<8}{'layers':>16}{'output layer':>18}{'forward':>16}")
+    for n in names:
+        print(f"  {n:<8}" + "".join(f"{cell(paired(n, m, base, x)):>16}" for x in ("layers", "final", "forward")))
+if len(modes) > 2:
+    print("\n2b) each mode vs the previous one (what the extra step adds)")
+    for old, new in zip(modes[1:], modes[2:]):
+        print(f"  {new} vs {old}")
+        print(f"  {'config':<8}{'layers':>16}{'output layer':>18}{'forward':>16}")
+        for n in names:
+            print(f"  {n:<8}" + "".join(f"{cell(paired(n, new, old, x)):>16}" for x in ("layers", "final", "forward")))
 
 print("\n3) estimate for plan 2A: layers on the best config + output layer on the best config")
 print("   (sum of separately measured stage medians; the cost of switching cores between stages is NOT included)")
-best = {}
-for w in ("w0", "w3"):
+for w in modes:
     bl = min(names, key=lambda n: med(n, w, "layers")); bf = min(names, key=lambda n: med(n, w, "final"))
     bs = min(names, key=lambda n: med(n, w, "forward"))
     est = med(bl, w, "layers") + med(bf, w, "final")
-    best[w] = (est, med(bs, w, "forward"))
-    print(f"   {w}: layers {bl} {med(bl,w,'layers'):.3f} + output {bf} {med(bf,w,'final'):.3f} = {est:.3f} ms/token"
-          f" ({1000/est:.0f} tok/s)   best single config: {bs} {med(bs,w,'forward'):.3f} ms ({1000/med(bs,w,'forward'):.0f} tok/s)")
-e0, s0 = best["w0"]; e3, s3 = best["w3"]
-print(f"   vs best single config without huge pages ({s0:.3f} ms):")
-print(f"     huge pages only            x{s0/s3:.3f}")
-print(f"     stage-wise configs only    x{s0/e0:.3f}  (estimate)")
-print(f"     both                       x{s0/e3:.3f}  (estimate)")
+    print(f"   {w}: layers {bl} {med(bl,w,'layers'):.3f} + output {bf} {med(bf,w,'final'):.3f} = {est:.3f} ms ({1000/est:.0f} tok/s)"
+          f"   best single config: {bs} {med(bs,w,'forward'):.3f} ms ({1000/med(bs,w,'forward'):.0f} tok/s)")
 
-def spread(n, w, m):  # min-max over rounds, to show run-to-run stability
-    x = v[(n, w)][m].values(); return f"{min(x):.2f}-{max(x):.2f}"
-print("\n4) run-to-run range over rounds (min-max ms/token, -w 0)")
-print(f"{'config':<8}{'layers':>14}{'output':>14}{'forward':>14}")
-for n in names:
-    print(f"{n:<8}" + "".join(f"{spread(n,'w0',m):>14}" for m in ("layers", "final", "forward")))
-if "P1" not in names: sys.exit(0)
-print("\n5) same core type, more threads (forward w0, tok/s):  "
-      + "P1->P2->P4_HT " + " -> ".join(f"{med(n,'w0','tok'):.0f}" for n in ["P1", "P2", "P4_HT"] if n in names)
-      + "   E1->E2->E4/X4_2_2 " + " -> ".join(f"{med(n,'w0','tok'):.0f}" for n in ["E1", "E2", "E4", "X4_2_2"] if n in names))
+print("\n4) run-to-run range over rounds (min-max ms/token)")
+for w in (modes[0], modes[-1]) if len(modes) > 1 else modes:
+    print(f"  {w}")
+    print(f"  {'config':<8}{'layers':>14}{'output':>14}{'forward':>14}")
+    for n in names:
+        print(f"  {n:<8}" + "".join(f"{min(v[(n,w)][m].values()):.2f}-{max(v[(n,w)][m].values()):.2f}".rjust(14) for m in ("layers", "final", "forward")))
+
+if "P1" in names:
+    print(f"\n5) same core type, more threads (forward {base}, tok/s):  "
+          + "P1->P2->P4_HT " + " -> ".join(f"{med(n,base,'tok'):.0f}" for n in ["P1", "P2", "P4_HT"] if n in names)
+          + "   E1->E2->E4/X4_2_2 " + " -> ".join(f"{med(n,base,'tok'):.0f}" for n in ["E1", "E2", "E4", "X4_2_2"] if n in names))
 PY
 cat "$OUT/M_summary.txt"
 echo "end: $(date -Is) $(cpu_state)" >> "$OUT/environment.txt"
