@@ -14,6 +14,21 @@
     #include <unistd.h>
     #include <sys/mman.h>
 #endif
+// x86 の GCC / clang では、出力層の SIMD カーネルを target 属性で作り、実行時に選ぶ。
+// それ以外（MSVC、ARM など）はスカラー版だけになる
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+    #define CLS_X86 1
+    #include <immintrin.h>
+    #include <cpuid.h>
+    // AVX-VNNI の intrinsics（_mm256_dpbusd_avx_epi32）は GCC 11 / clang 12 から
+    #if defined(__clang__)
+        #if !defined(__apple_build_version__) && __clang_major__ >= 12
+            #define CLS_VNNI 1
+        #endif
+    #elif __GNUC__ >= 11
+        #define CLS_VNNI 1
+    #endif
+#endif
 // ----------------------------------------------------------------------------
 // Transformer model
 
@@ -65,9 +80,26 @@ typedef struct {
     float* value_cache; // (layer, seq_len, dim)
 } RunState;
 
+// 出力層（classifier）の重みの形式。-q で選ぶ
+typedef enum { CLS_FP32, CLS_FP16, CLS_INT8 } ClsType;
+#define CLS_GROUP 32 // int8 のスケールを共有する要素数
+// 出力層のカーネルで使う命令セット。起動時に CPU を調べて選ぶ
+typedef enum { CLS_ISA_SCALAR, CLS_ISA_AVX2, CLS_ISA_AVXVNNI } ClsIsa;
+
+typedef struct {
+    ClsType type;  // 出力層で使う形式（CLS_FP32 なら wcls をそのまま使う）
+    ClsIsa isa;    // fp16 / int8 のカーネルの命令セット
+    uint16_t* w16; // fp16 の wcls (vocab_size, dim)
+    int8_t* q8;    // int8 の wcls (vocab_size, dim)
+    float* q8s;    // int8 の wcls のスケール (vocab_size, dim / CLS_GROUP)
+    int8_t* xq;    // int8 に量子化した x (dim,)
+    float* xs;     // x のスケール (dim / CLS_GROUP,)
+} Classifier;
+
 typedef struct {
     Config config; // the hyperparameters of the architecture (the blueprint)
     TransformerWeights weights; // the weights of the model
+    Classifier cls; // reduced-precision copies of wcls for the output layer
     RunState state; // buffers for the "wave" of activations in the forward pass
     // some more state needed to properly clean up the memory mapping (sigh)
     int fd; // file descriptor for memory mapping
@@ -167,6 +199,17 @@ void build_transformer(Transformer *t, char* checkpoint_path) {
     read_checkpoint(checkpoint_path, &t->config, &t->weights, &t->fd, &t->data, &t->file_size);
     // allocate the RunState buffers
     malloc_run_state(&t->state, &t->config);
+    // the output layer uses wcls as is (fp32) until build_classifier() is called
+    memset(&t->cls, 0, sizeof(t->cls));
+}
+
+void free_classifier(Classifier* c) {
+    free(c->w16);
+    free(c->q8);
+    free(c->q8s);
+    free(c->xq);
+    free(c->xs);
+    memset(c, 0, sizeof(*c));
 }
 
 void free_transformer(Transformer* t) {
@@ -175,6 +218,7 @@ void free_transformer(Transformer* t) {
     if (t->fd != -1) { close(t->fd); }
     // free the RunState buffers
     free_run_state(&t->state);
+    free_classifier(&t->cls);
 }
 
 // ----------------------------------------------------------------------------
@@ -228,6 +272,268 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
         xout[i] = val;
     }
 }
+
+// ----------------------------------------------------------------------------
+// Output layer (classifier) in fp16 / int8
+// 方針: プロジェクト/output-layer-memory-optimization.md 第4節（B1, B2）
+//
+// 出力層は 1 トークンごとに wcls（vocab_size x dim）を丸ごと読むので、メモリ帯域で律速する。
+// 読み込み時に wcls の fp16 / int8 のコピーを作り、読む量を 1/2、約 1/3.5 に減らす。
+// 埋め込み表としては fp32 の元データを使い続ける（1 トークンにつき 1 行しか読まないため）。
+
+// fp32 -> fp16（最近接偶数への丸め）。重みの変換に使う
+static uint16_t fp32_to_fp16(float f) {
+    uint32_t x;
+    memcpy(&x, &f, sizeof(x));
+    uint16_t sign = (x >> 16) & 0x8000;
+    uint32_t ax = x & 0x7fffffff;
+    if (ax >= 0x7f800000) { return sign | 0x7c00 | (ax > 0x7f800000 ? 0x200 : 0); } // inf, nan
+    if (ax >= 0x477ff000) { return sign | 0x7c00; } // 65520 以上は inf に丸まる
+    if (ax < 0x38800000) {
+        // fp16 では非正規化数になる（2^-14 未満）: 2^-24 単位に丸める
+        float a;
+        memcpy(&a, &ax, sizeof(a));
+        return sign | (uint16_t)lrintf(a * 16777216.0f);
+    }
+    // 指数のバイアスを 127 から 15 に付け替え、仮数の下位 13 ビットを最近接偶数に丸める
+    ax += 0xc8000fff + ((ax >> 13) & 1);
+    return sign | (uint16_t)(ax >> 13);
+}
+
+// fp16 -> fp32（誤差なし）。スカラー版のカーネルで使う
+static float fp16_to_fp32(uint16_t h) {
+    uint32_t sign = (uint32_t)(h & 0x8000) << 16;
+    uint32_t exp = (h >> 10) & 0x1f;
+    uint32_t man = h & 0x3ff;
+    if (exp == 0) { // 0 または非正規化数
+        float f = ldexpf((float)man, -24);
+        return sign ? -f : f;
+    }
+    uint32_t x = sign | (man << 13);
+    x |= (exp == 0x1f) ? 0x7f800000 : (exp + 112) << 23; // inf, nan / 正規化数
+    float f;
+    memcpy(&f, &x, sizeof(f));
+    return f;
+}
+
+// CLS_GROUP 要素を int8 に量子化する（絶対値の最大が 127 になるスケール。runq.c の Q8_0 と同じ方式）
+static void cls_quantize_group(int8_t* q, float* scale, const float* x) {
+    float amax = 0.0f;
+    for (int j = 0; j < CLS_GROUP; j++) { amax = fmaxf(amax, fabsf(x[j])); }
+    float s = amax / 127.0f;
+    float inv = s > 0.0f ? 1.0f / s : 0.0f;
+    for (int j = 0; j < CLS_GROUP; j++) { q[j] = (int8_t)lrintf(x[j] * inv); }
+    *scale = s;
+}
+
+// カーネルは行 [r0, r1) の logits を計算する。int8 は x の代わりに量子化済みの c->xq, c->xs を使う
+typedef void (*ClsRowsFn)(float* out, const float* x, const Classifier* c, int n, int r0, int r1);
+
+// スカラー版はどのマシンでも動く。SIMD 版の正しさの基準にもする
+static void cls_rows_fp16_scalar(float* out, const float* x, const Classifier* c, int n, int r0, int r1) {
+    for (int i = r0; i < r1; i++) {
+        const uint16_t* row = c->w16 + (size_t)i * n;
+        float val = 0.0f;
+        for (int j = 0; j < n; j++) { val += fp16_to_fp32(row[j]) * x[j]; }
+        out[i] = val;
+    }
+}
+
+static void cls_rows_int8_scalar(float* out, const float* x, const Classifier* c, int n, int r0, int r1) {
+    (void)x;
+    int gpr = n / CLS_GROUP;
+    for (int i = r0; i < r1; i++) {
+        const int8_t* row = c->q8 + (size_t)i * n;
+        const float* rs = c->q8s + (size_t)i * gpr;
+        float val = 0.0f;
+        for (int g = 0; g < gpr; g++) {
+            int32_t isum = 0;
+            for (int j = 0; j < CLS_GROUP; j++) {
+                isum += (int32_t)row[g * CLS_GROUP + j] * c->xq[g * CLS_GROUP + j];
+            }
+            val += (float)isum * (rs[g] * c->xs[g]);
+        }
+        out[i] = val;
+    }
+}
+
+#ifdef CLS_X86
+#define CLS_TARGET_AVX2 __attribute__((target("avx2,fma,f16c")))
+
+CLS_TARGET_AVX2 static inline float cls_hsum256(__m256 v) {
+    __m128 s = _mm_add_ps(_mm256_castps256_ps128(v), _mm256_extractf128_ps(v, 1));
+    s = _mm_add_ps(s, _mm_movehl_ps(s, s));
+    s = _mm_add_ss(s, _mm_movehdup_ps(s));
+    return _mm_cvtss_f32(s);
+}
+
+// fp16 の重みを F16C で fp32 に変換して FMA する。4 行を同時に計算し、x の読み込みを共有する
+CLS_TARGET_AVX2 static void cls_rows_fp16_avx2(float* out, const float* x, const Classifier* c, int n, int r0, int r1) {
+    int n8 = n & ~7;
+    for (int i = r0; i < r1; i += 4) {
+        int nr = r1 - i < 4 ? r1 - i : 4;
+        const uint16_t* row = c->w16 + (size_t)i * n;
+        __m256 acc[4] = {_mm256_setzero_ps(), _mm256_setzero_ps(), _mm256_setzero_ps(), _mm256_setzero_ps()};
+        for (int j = 0; j < n8; j += 8) {
+            __m256 xv = _mm256_loadu_ps(x + j);
+            for (int r = 0; r < nr; r++) {
+                __m256 wv = _mm256_cvtph_ps(_mm_loadu_si128((const __m128i*)(row + (size_t)r * n + j)));
+                acc[r] = _mm256_fmadd_ps(wv, xv, acc[r]);
+            }
+        }
+        for (int r = 0; r < nr; r++) {
+            float val = cls_hsum256(acc[r]);
+            for (int j = n8; j < n; j++) { val += fp16_to_fp32(row[(size_t)r * n + j]) * x[j]; }
+            out[i + r] = val;
+        }
+    }
+}
+
+// 符号付き x 符号付きの積和を、|w| x sign(x, w) の符号なし x 符号付きに直して maddubs で計算する。
+// 量子化した値は |w|, |x| <= 127 なので、16 ビットの途中の和は飽和しない
+CLS_TARGET_AVX2 static inline __m256i cls_dot_i8_avx2(__m256i w, __m256i x) {
+    __m256i p16 = _mm256_maddubs_epi16(_mm256_sign_epi8(w, w), _mm256_sign_epi8(x, w));
+    return _mm256_madd_epi16(p16, _mm256_set1_epi16(1));
+}
+
+CLS_TARGET_AVX2 static void cls_rows_int8_avx2(float* out, const float* x, const Classifier* c, int n, int r0, int r1) {
+    (void)x;
+    int gpr = n / CLS_GROUP;
+    for (int i = r0; i < r1; i++) {
+        const int8_t* row = c->q8 + (size_t)i * n;
+        const float* rs = c->q8s + (size_t)i * gpr;
+        __m256 acc = _mm256_setzero_ps();
+        for (int g = 0; g < gpr; g++) {
+            __m256i wv = _mm256_loadu_si256((const __m256i*)(row + g * CLS_GROUP));
+            __m256i xv = _mm256_loadu_si256((const __m256i*)(c->xq + g * CLS_GROUP));
+            __m256 p = _mm256_cvtepi32_ps(cls_dot_i8_avx2(wv, xv));
+            acc = _mm256_fmadd_ps(p, _mm256_set1_ps(rs[g] * c->xs[g]), acc);
+        }
+        out[i] = cls_hsum256(acc);
+    }
+}
+
+#ifdef CLS_VNNI
+#define CLS_TARGET_VNNI __attribute__((target("avx2,fma,f16c,avxvnni")))
+
+// AVX2 版と同じ計算を、maddubs + madd の代わりに vpdpbusd 1 命令で行う
+CLS_TARGET_VNNI static void cls_rows_int8_vnni(float* out, const float* x, const Classifier* c, int n, int r0, int r1) {
+    (void)x;
+    int gpr = n / CLS_GROUP;
+    for (int i = r0; i < r1; i++) {
+        const int8_t* row = c->q8 + (size_t)i * n;
+        const float* rs = c->q8s + (size_t)i * gpr;
+        __m256 acc = _mm256_setzero_ps();
+        for (int g = 0; g < gpr; g++) {
+            __m256i wv = _mm256_loadu_si256((const __m256i*)(row + g * CLS_GROUP));
+            __m256i xv = _mm256_loadu_si256((const __m256i*)(c->xq + g * CLS_GROUP));
+            __m256i dot = _mm256_dpbusd_avx_epi32(_mm256_setzero_si256(),
+                                                  _mm256_sign_epi8(wv, wv), _mm256_sign_epi8(xv, wv));
+            acc = _mm256_fmadd_ps(_mm256_cvtepi32_ps(dot), _mm256_set1_ps(rs[g] * c->xs[g]), acc);
+        }
+        out[i] = cls_hsum256(acc);
+    }
+}
+#endif // CLS_VNNI
+#endif // CLS_X86
+
+// 実行中の CPU と OS が使える命令セットを調べる（-march=native なしのビルドでも SIMD 版を使うため）
+static ClsIsa cls_detect_isa(void) {
+#ifdef CLS_X86
+    unsigned int a, b, c, d;
+    if (__get_cpuid_max(0, NULL) < 7) { return CLS_ISA_SCALAR; }
+    __cpuid(1, a, b, c, d);
+    int fma = (c >> 12) & 1, osxsave = (c >> 27) & 1, avx = (c >> 28) & 1, f16c = (c >> 29) & 1;
+    if (!(fma && osxsave && avx && f16c)) { return CLS_ISA_SCALAR; }
+    // OS が YMM レジスタを退避・復帰するか（XCR0 の bit 1, 2）
+    unsigned int xcr0_lo, xcr0_hi;
+    __asm__ volatile("xgetbv" : "=a"(xcr0_lo), "=d"(xcr0_hi) : "c"(0));
+    (void)xcr0_hi;
+    if ((xcr0_lo & 6) != 6) { return CLS_ISA_SCALAR; }
+    __cpuid_count(7, 0, a, b, c, d);
+    if (!((b >> 5) & 1)) { return CLS_ISA_SCALAR; } // AVX2
+#ifdef CLS_VNNI
+    if (a >= 1) { // leaf 7 の subleaf 1 があれば、その EAX bit 4 が AVX-VNNI
+        __cpuid_count(7, 1, a, b, c, d);
+        if ((a >> 4) & 1) { return CLS_ISA_AVXVNNI; }
+    }
+#endif
+    return CLS_ISA_AVX2;
+#else
+    return CLS_ISA_SCALAR;
+#endif
+}
+
+static ClsRowsFn cls_rows_fn(ClsType type, ClsIsa isa) {
+#ifdef CLS_X86
+    if (type == CLS_FP16 && isa != CLS_ISA_SCALAR) { return cls_rows_fp16_avx2; }
+#ifdef CLS_VNNI
+    if (type == CLS_INT8 && isa == CLS_ISA_AVXVNNI) { return cls_rows_int8_vnni; }
+#endif
+    if (type == CLS_INT8 && isa != CLS_ISA_SCALAR) { return cls_rows_int8_avx2; }
+#endif
+    (void)isa;
+    return type == CLS_FP16 ? cls_rows_fp16_scalar : cls_rows_int8_scalar;
+}
+
+// 出力層で使う形式を選び、必要なら wcls の fp16 / int8 のコピーを作る。
+// 作ったコピーは free_transformer() まで残るので、両方作っておけば c->type の書き換えだけで切り替えられる
+void build_classifier(Transformer* t, ClsType type) {
+    Config* p = &t->config;
+    Classifier* c = &t->cls;
+    const float* w = t->weights.wcls;
+    size_t n = (size_t)p->vocab_size * p->dim;
+    c->isa = cls_detect_isa();
+    if (type == CLS_FP16 && c->w16 == NULL) {
+        c->w16 = malloc(n * sizeof(uint16_t));
+        if (!c->w16) { fprintf(stderr, "malloc failed!\n"); exit(EXIT_FAILURE); }
+        for (size_t i = 0; i < n; i++) { c->w16[i] = fp32_to_fp16(w[i]); }
+    }
+    if (type == CLS_INT8 && c->q8 == NULL) {
+        if (p->dim % CLS_GROUP != 0) {
+            fprintf(stderr, "-q int8 requires dim to be a multiple of %d (dim = %d)\n", CLS_GROUP, p->dim);
+            exit(EXIT_FAILURE);
+        }
+        size_t groups = n / CLS_GROUP;
+        c->q8 = malloc(n * sizeof(int8_t));
+        c->q8s = malloc(groups * sizeof(float));
+        c->xq = malloc(p->dim * sizeof(int8_t));
+        c->xs = malloc(p->dim / CLS_GROUP * sizeof(float));
+        if (!c->q8 || !c->q8s || !c->xq || !c->xs) { fprintf(stderr, "malloc failed!\n"); exit(EXIT_FAILURE); }
+        for (size_t g = 0; g < groups; g++) {
+            cls_quantize_group(c->q8 + g * CLS_GROUP, c->q8s + g, w + g * CLS_GROUP);
+        }
+    }
+    c->type = type;
+}
+
+#define CLS_BLOCK 64 // 並列化の単位の行数（fp16 の 4 行同時処理に合わせて 4 の倍数）
+
+// xout (vocab_size,) = wcls (vocab_size, dim) @ x (dim,)。形式は t->cls.type で選ぶ
+static void classifier_matmul(Transformer* t, float* xout, float* x) {
+    Classifier* c = &t->cls;
+    int n = t->config.dim;
+    int d = t->config.vocab_size;
+    if (c->type == CLS_FP32) {
+        matmul(xout, x, t->weights.wcls, n, d);
+        return;
+    }
+    if (c->type == CLS_INT8) {
+        for (int g = 0; g < n / CLS_GROUP; g++) {
+            cls_quantize_group(c->xq + g * CLS_GROUP, c->xs + g, x + g * CLS_GROUP);
+        }
+    }
+    ClsRowsFn rows = cls_rows_fn(c->type, c->isa);
+    int n_blocks = (d + CLS_BLOCK - 1) / CLS_BLOCK;
+    int b;
+    #pragma omp parallel for private(b)
+    for (b = 0; b < n_blocks; b++) {
+        int r0 = b * CLS_BLOCK;
+        int r1 = r0 + CLS_BLOCK < d ? r0 + CLS_BLOCK : d;
+        rows(xout, x, c, n, r0, r1);
+    }
+}
+
 // ============================================================
 // Token Embedding
 // ============================================================
@@ -540,11 +846,8 @@ static float* final_projection(Transformer* t) {
         p->dim
     );
 
-    matmul(
-        s->logits, s->x,
-        w->wcls,
-        p->dim, p->vocab_size
-    );
+    // 形式（fp32 / fp16 / int8）は -q で選ぶ
+    classifier_matmul(t, s->logits, s->x);
 
     return s->logits;
 }
@@ -1230,6 +1533,7 @@ void error_usage() {
     fprintf(stderr, "  -z <string> optional path to custom tokenizer\n");
     fprintf(stderr, "  -m <string> mode: generate|chat, default: generate\n");
     fprintf(stderr, "  -y <string> (optional) system prompt in chat mode\n");
+    fprintf(stderr, "  -q <string> output layer weights: fp32|fp16|int8, default: fp32\n");
     exit(EXIT_FAILURE);
 }
 
@@ -1245,6 +1549,7 @@ int main(int argc, char *argv[]) {
     unsigned long long rng_seed = 0; // seed rng with time by default
     char *mode = "generate";    // generate|chat
     char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
+    char *cls_name = "fp32";    // output layer weights: fp32|fp16|int8
 
     // poor man's C argparse so we can override the defaults above from the command line
     if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
@@ -1262,6 +1567,7 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'z') { tokenizer_path = argv[i + 1]; }
         else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
         else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
+        else if (argv[i][1] == 'q') { cls_name = argv[i + 1]; }
         else { error_usage(); }
     }
 
@@ -1270,10 +1576,16 @@ int main(int argc, char *argv[]) {
     if (temperature < 0.0) temperature = 0.0;
     if (topp < 0.0 || 1.0 < topp) topp = 0.9;
     if (steps < 0) steps = 0;
+    ClsType cls_type = CLS_FP32;
+    if (strcmp(cls_name, "fp32") == 0) { cls_type = CLS_FP32; }
+    else if (strcmp(cls_name, "fp16") == 0) { cls_type = CLS_FP16; }
+    else if (strcmp(cls_name, "int8") == 0) { cls_type = CLS_INT8; }
+    else { fprintf(stderr, "unknown output layer weights: %s\n", cls_name); error_usage(); }
 
     // build the Transformer via the model .bin file
     Transformer transformer;
     build_transformer(&transformer, checkpoint_path);
+    build_classifier(&transformer, cls_type);
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
     #ifdef STAGE_TIMING
         stage_timing_init(steps, transformer.config.n_layers);
