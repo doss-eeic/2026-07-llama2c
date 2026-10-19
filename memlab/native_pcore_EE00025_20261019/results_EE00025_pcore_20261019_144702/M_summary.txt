@@ -1,0 +1,44 @@
+outputs: 1 distinct (OK, all identical)
+[profile=performance governor=powersave epp=performance platform_profile=performance]
+
+1) ms/token per stage (median), same layout as the team's Day4 plan-2 table
+config  CPU        layers w0      w3  output w0      w3  forward w0      w3  tok/s w0      w3
+P1_c0   0              1.048   0.985      1.186   1.180       2.237   2.165       442     456
+P1_c2   2              1.052   0.973      1.170   1.143       2.218   2.115       445     467
+P1_c1   1              1.048   0.983      1.189   1.187       2.237   2.171       441     455
+P2_c02  0,2            0.849   0.813      0.861   0.845       1.710   1.658       575     593
+P2_c13  1,3            0.847   0.812      0.863   0.844       1.709   1.657       576     593
+P3_HT   1-3            0.866   0.803      0.863   0.828       1.728   1.632       568     602
+P4_HT   0-3            0.790   0.747      0.753   0.723       1.543   1.472       636     667
+X4_2_2  4,5,8,9        0.897   0.871      0.865   0.849       1.764   1.720       557     573
+
+2) huge-page speedup per stage (-w 3 vs -w 0, paired median over rounds, wins)
+config            layers      output layer         forward
+P1_c0       1.067x 10/10    1.006x  7/10    1.034x 10/10
+P1_c2       1.081x 10/10    1.023x 10/10    1.050x 10/10
+P1_c1       1.069x 10/10    1.004x  5/10    1.033x 10/10
+P2_c02      1.046x 10/10    1.019x 10/10    1.033x 10/10
+P2_c13      1.041x 10/10    1.021x 10/10    1.032x 10/10
+P3_HT       1.079x 10/10    1.043x 10/10    1.058x 10/10
+P4_HT       1.061x 10/10    1.039x  9/10    1.050x 10/10
+X4_2_2      1.029x 10/10    1.019x 10/10    1.026x 10/10
+
+3) estimate for plan 2A: layers on the best config + output layer on the best config
+   (sum of separately measured stage medians; the cost of switching cores between stages is NOT included)
+   w0: layers P4_HT 0.790 + output P4_HT 0.753 = 1.543 ms/token (648 tok/s)   best single config: P4_HT 1.543 ms (648 tok/s)
+   w3: layers P4_HT 0.747 + output P4_HT 0.723 = 1.471 ms/token (680 tok/s)   best single config: P4_HT 1.472 ms (679 tok/s)
+   vs best single config without huge pages (1.543 ms):
+     huge pages only            x1.049
+     stage-wise configs only    x1.000  (estimate)
+     both                       x1.049  (estimate)
+
+4) run-to-run range over rounds (min-max ms/token, -w 0)
+config          layers        output       forward
+P1_c0        1.04-1.05     1.18-1.23     2.22-2.28
+P1_c2        1.04-1.06     1.16-1.19     2.21-2.25
+P1_c1        1.05-1.05     1.18-1.20     2.23-2.25
+P2_c02       0.85-0.85     0.86-0.86     1.71-1.72
+P2_c13       0.84-0.85     0.86-0.87     1.70-1.72
+P3_HT        0.86-0.88     0.86-0.87     1.72-1.76
+P4_HT        0.79-0.80     0.75-0.76     1.54-1.56
+X4_2_2       0.89-0.91     0.86-0.87     1.75-1.78

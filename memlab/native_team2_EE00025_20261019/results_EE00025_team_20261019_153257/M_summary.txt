@@ -1,0 +1,43 @@
+outputs: 1 distinct (OK, all identical)
+[profile=performance governor=powersave epp=performance platform_profile=performance]
+
+1) ms/token per stage (median), same layout as the team's Day4 plan-2 table
+config  CPU        layers w0      w3  output w0      w3  forward w0      w3  tok/s w0      w3
+P1      0              1.067   0.999      1.205   1.202       2.274   2.201       434     449
+P2      0,2            0.854   0.818      0.882   0.859       1.736   1.678       565     586
+P4_HT   0-3            0.806   0.758      0.760   0.732       1.567   1.490       626     658
+E4      4-7            1.007   0.983      1.022   1.013       2.028   1.996       486     494
+X4_2_2  4,5,8,9        0.922   0.889      0.877   0.864       1.798   1.751       546     561
+E1      4              1.999   1.917      2.720   2.653       4.720   4.570       210     217
+E2      4,5            1.253   1.211      1.411   1.375       2.664   2.584       371     383
+
+2) huge-page speedup per stage (-w 3 vs -w 0, paired median over rounds, wins)
+config            layers      output layer         forward
+P1          1.072x 10/10    1.000x  5/10    1.032x 10/10
+P2          1.045x 10/10    1.027x 10/10    1.036x 10/10
+P4_HT       1.065x 10/10    1.039x 10/10    1.050x 10/10
+E4          1.026x  9/10    1.007x  8/10    1.017x  9/10
+X4_2_2      1.038x 10/10    1.016x 10/10    1.028x 10/10
+E1          1.050x  9/10    1.030x  9/10    1.038x  9/10
+E2          1.035x 10/10    1.025x 10/10    1.030x 10/10
+
+3) estimate for plan 2A: layers on the best config + output layer on the best config
+   (sum of separately measured stage medians; the cost of switching cores between stages is NOT included)
+   w0: layers P4_HT 0.806 + output P4_HT 0.760 = 1.567 ms/token (638 tok/s)   best single config: P4_HT 1.567 ms (638 tok/s)
+   w3: layers P4_HT 0.758 + output P4_HT 0.732 = 1.490 ms/token (671 tok/s)   best single config: P4_HT 1.490 ms (671 tok/s)
+   vs best single config without huge pages (1.567 ms):
+     huge pages only            x1.052
+     stage-wise configs only    x1.000  (estimate)
+     both                       x1.052  (estimate)
+
+4) run-to-run range over rounds (min-max ms/token, -w 0)
+config          layers        output       forward
+P1           1.06-1.09     1.19-1.24     2.26-2.33
+P2           0.85-0.86     0.88-0.89     1.73-1.75
+P4_HT        0.80-0.81     0.76-0.79     1.56-1.60
+E4           1.00-1.02     1.02-1.03     2.02-2.05
+X4_2_2       0.91-0.94     0.87-0.88     1.79-1.82
+E1           1.96-2.10     2.67-2.89     4.64-4.99
+E2           1.24-1.26     1.40-1.42     2.64-2.67
+
+5) same core type, more threads (forward w0, tok/s):  P1->P2->P4_HT 434 -> 565 -> 626   E1->E2->E4/X4_2_2 210 -> 371 -> 486 -> 546

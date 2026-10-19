@@ -1,0 +1,19 @@
+[14:17:53] power profile: performance (was balanced)
+[14:17:53] downloading sources
+[14:17:54] model: /home/denjo/Downloads/native_kit/stories15M.bin
+[14:17:54] building
+[14:17:55] T tlbreach (P-core cpu0 x2, E-core cpu4 x2)
+[14:17:55] M warm-up round
+[14:17:59] M 14 combinations x 10 rounds (random order each round)
+[14:18:07]   round 1/10 done
+[14:18:15]   round 2/10 done
+[14:18:24]   round 3/10 done
+[14:18:32]   round 4/10 done
+[14:18:41]   round 5/10 done
+[14:18:50]   round 6/10 done
+[14:18:58]   round 7/10 done
+[14:19:07]   round 8/10 done
+[14:19:16]   round 9/10 done
+[14:19:24]   round 10/10 done
+[14:19:24] DONE. results: /home/denjo/llama_core_check/results_EE00025_20261019_141750.tar.gz
+[14:19:25] power profile restored to balanced
