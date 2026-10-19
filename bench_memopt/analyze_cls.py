@@ -56,9 +56,12 @@ def load(out_dir):
             "threads": first["threads"], "cpus": first["cpus"],
             "anon_huge_kb": first["anon_huge_kb"],
             "argmax_ok": "/".join(sorted({r["argmax_ok"] for r in rows})),
+            "schedule": first.get("schedule", ""),
+            "thr_rows": first.get("thr_rows", ""),
             "max_abs_err": first["max_abs_err"],
         })
-        for col in ("median_us", "p10_us", "p90_us", "min_us", "gbps_median", "gbps_best", "ghz"):
+        for col in ("median_us", "p10_us", "p90_us", "min_us", "gbps_median", "gbps_best", "ghz",
+                    "imbalance_pct"):
             s[col] = med(num(r[col]) for r in rows)
         us = [num(r["median_us"]) for r in rows if num(r["median_us"])]
         s["spread_pct"] = (max(us) - min(us)) / median(us) * 100 if len(us) > 1 else None
@@ -136,6 +139,25 @@ def show_split(rows):
     print("us/call: 時間を K に対して直線で当てはめた傾き（並列区間1回あたりの追加コスト）")
 
 
+def show_sched(rows):
+    rows = [r for r in rows if r["exp"] == "sched"]
+    if not rows:
+        return
+    print("\n=== sched: 出力層の行の配り方（OMP_WAIT_POLICY=active） ===")
+    print(f"{'config':<7}{'label':<22}{'us':>9}{'vs static':>11}{'spread':>8}{'imbal':>8}  rows/thread (min..max)")
+    base = {(r["config"], r["label"].split("_", 1)[0]): r["median_us"]
+            for r in rows if r["label"].endswith("_static")}
+    for r in rows:
+        kname = r["label"].split("_", 1)[0]
+        b = base.get((r["config"], kname))
+        change = (r["median_us"] - b) / b * 100 if b and r["median_us"] else None
+        tr = [int(v) for v in r["thr_rows"].split(":") if v] if r.get("thr_rows") else []
+        span = f"{min(tr)}..{max(tr)}" if tr else "-"
+        print(f"{r['config']:<7}{r['label']:<22}{fmt(r['median_us'], '9.1f')}"
+              f"{fmt(change, '+10.1f')}%{fmt(r['spread_pct'], '7.1f')}%{fmt(r.get('imbalance_pct'), '7.1f')}%  {span}")
+    print("vs static: run.c の今の配り方（64 行ブロックの static）からの変化。imbal: 一番遅いスレッドを待つ時間の割合")
+
+
 def show_pe(rows):
     rows = [r for r in rows if r["exp"] == "pe"]
     if not rows:
@@ -164,6 +186,7 @@ def main():
     show_size(summary)
     show_split(summary)
     show_pe(summary)
+    show_sched(summary)
 
     bad = [s for s in summary if s["argmax_ok"] not in ("1", "-1")]
     noisy = [s for s in summary if s["spread_pct"] is not None and s["spread_pct"] > 10]

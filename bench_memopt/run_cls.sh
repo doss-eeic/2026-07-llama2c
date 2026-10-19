@@ -11,6 +11,9 @@
 #   size     データ量 2〜64MB のスイープ（L3 12MB の内外）。P4_HT、乱数の重み
 #   split    同じ行列を K 回の並列区間に分けて読む（呼び出しごとの固定コスト）。OMP_WAIT_POLICY も変える
 #   pe       P コア + E コアでの出力層の分担（均等 / 帯域比で重み付け）
+#   sched    出力層の行の配り方（連続した範囲 / 帯域比 / 64 行ブロックの static・dynamic・guided）。
+#            run.c と同じく fp32 は mmap のまま、int8 は 4KB ページ。OMP_WAIT_POLICY=active。
+#            引数なしの全部には含めない（bash bench_memopt/run_cls.sh sched で回す）
 
 set -uo pipefail
 
@@ -94,7 +97,7 @@ cp -r bench_memopt/env "$OUT_DIR/" 2>/dev/null || true
 echo "exp,config,label,wait,round,$("$BIN" --header),ghz" > "$RESULTS"
 
 export OMP_DYNAMIC=FALSE
-export OMP_PROC_BIND=TRUE
+export OMP_PROC_BIND=close
 export OMP_PLACES=threads
 
 # ==========================================
@@ -192,6 +195,24 @@ exp_split() {
     done
 }
 
+exp_sched() {
+    local r=$1
+    local scheds=(range static dynamic:1 dynamic:2 dynamic:4 dynamic:16 guided:1)
+    for config in P4X P4_HT; do
+        for kv in "fp32|--kernel fp32 --page file" "int8|--kernel int8 --page 4k"; do
+            IFS='|' read -r kname kargs <<< "$kv"
+            for sc in "${scheds[@]}"; do
+                # shellcheck disable=SC2086
+                run_case sched "$config" "${kname}_${sc}" active "$r" $kargs --schedule "$sc"
+            done
+            if [[ "$config" == "P4X" ]]; then
+                # shellcheck disable=SC2086
+                run_case sched "$config" "${kname}_range-weighted" active "$r" $kargs --schedule range --weights "$PE_WEIGHTS"
+            fi
+        done
+    done
+}
+
 exp_pe() {
     local r=$1
     for wait in default active; do
@@ -214,6 +235,7 @@ for ((r = 1; r <= REPEATS; r++)); do
             size)    exp_size "$r" ;;
             split)   exp_split "$r" ;;
             pe)      exp_pe "$r" ;;
+            sched)   exp_sched "$r" ;;
             *)       die "unknown experiment: $exp" ;;
         esac
     done

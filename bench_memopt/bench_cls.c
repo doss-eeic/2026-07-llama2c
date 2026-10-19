@@ -8,6 +8,10 @@
 //   --rows N / --dim N            （データ量。synth なら L3 内外のスイープに使う）
 //   --split K                     （同じ行列を K 回の並列区間に分けて読む。呼び出しごとの固定コストの測定）
 //   --weights w0,w1,...           （スレッドごとの行の配分比。P+E 分担の試作。省略時は均等）
+//   --schedule range | static | dynamic:K | guided:K
+//                                 （行の配り方。range は各スレッドに連続した範囲（--weights の比）、
+//                                   それ以外は run.c の出力層と同じ 64 行のブロックを OpenMP の schedule で配る。
+//                                   K はブロックの数。static は run.c の今の配り方）
 //   --prefetch BYTES              （fp32_r4 のソフトウェアプリフェッチ距離。0 で無効）
 //   --flush-mb N                  （各反復の間に N MB の別バッファを読み、キャッシュを追い出す）
 // スレッド数と配置は OMP_NUM_THREADS / OMP_PROC_BIND / OMP_PLACES と taskset で外から指定する。
@@ -53,13 +57,14 @@ typedef struct {
     int prefetch;
     int flush_mb;
     const char* weights;
+    const char* schedule;
     unsigned seed;
 } Options;
 
 static const char* CSV_HEADER =
     "kernel,page,src,rows,dim,bytes,split,threads,cpus,weights,prefetch,flush_mb,"
     "iters,median_us,p10_us,p90_us,min_us,gbps_median,gbps_best,"
-    "anon_huge_kb,max_abs_err,argmax_ok";
+    "anon_huge_kb,max_abs_err,argmax_ok,schedule,thr_busy_us,thr_rows,imbalance_pct";
 
 static void usage(void) {
     fprintf(stderr,
@@ -71,6 +76,7 @@ static void usage(void) {
         "  --rows N --dim N       (default: model's vocab x dim, synth: 32000 x 288)\n"
         "  --split K              (default 1)\n"
         "  --weights w0,w1,...    (per-thread row share, default equal)\n"
+        "  --schedule S           range|static|dynamic:K|guided:K (default range; K in 64-row blocks)\n"
         "  --prefetch BYTES       (fp32_r4 only, default 0)\n"
         "  --flush-mb N           (default 0)\n"
         "  --warmup N --min-iters N --min-time SEC (default 10, 50, 0.5)\n"
@@ -83,7 +89,7 @@ static void parse_args(int argc, char** argv, Options* o) {
     *o = (Options){
         .kernel = "fp32", .page = "2m", .src = "model", .model = "stories15M.bin",
         .rows = 0, .dim = 0, .split = 1, .warmup = 10, .min_iters = 50, .min_time = 0.5,
-        .prefetch = 0, .flush_mb = 0, .weights = NULL, .seed = 42,
+        .prefetch = 0, .flush_mb = 0, .weights = NULL, .schedule = "range", .seed = 42,
     };
     for (int i = 1; i < argc; i++) {
         const char* a = argv[i];
@@ -98,6 +104,7 @@ static void parse_args(int argc, char** argv, Options* o) {
         else if (strcmp(a, "--dim") == 0)       { o->dim = atoi(v); }
         else if (strcmp(a, "--split") == 0)     { o->split = atoi(v); }
         else if (strcmp(a, "--weights") == 0)   { o->weights = v; }
+        else if (strcmp(a, "--schedule") == 0)  { o->schedule = v; }
         else if (strcmp(a, "--prefetch") == 0)  { o->prefetch = atoi(v); }
         else if (strcmp(a, "--flush-mb") == 0)  { o->flush_mb = atoi(v); }
         else if (strcmp(a, "--warmup") == 0)    { o->warmup = atoi(v); }
@@ -488,16 +495,72 @@ static inline void thread_range(int t, int r0, int r1, int* a, int* b) {
     *b = (t == g_nthreads - 1) ? r1 : r0 + ((int)(g_share[t + 1] * n) & ~3);
 }
 
+// 行の配り方。SCHED_RANGE は各スレッドに連続した範囲（thread_range）、
+// それ以外は CLS_BLOCK 行のブロックを omp for schedule(runtime) で配る（run.c の classifier_matmul と同じ単位）
+#define CLS_BLOCK 64
+enum { SCHED_RANGE, SCHED_BLOCKS };
+static int g_sched = SCHED_RANGE;
+
+static void setup_schedule(const char* spec, int weighted) {
+    if (strcmp(spec, "range") == 0) { g_sched = SCHED_RANGE; return; }
+    if (weighted) { die("--weights is only for --schedule range"); }
+    g_sched = SCHED_BLOCKS;
+    int chunk = 0;
+    const char* colon = strchr(spec, ':');
+    if (colon) { chunk = atoi(colon + 1); }
+    if (strncmp(spec, "static", 6) == 0)       { omp_set_schedule(omp_sched_static, chunk); }
+    else if (strncmp(spec, "dynamic", 7) == 0) { omp_set_schedule(omp_sched_dynamic, chunk > 0 ? chunk : 1); }
+    else if (strncmp(spec, "guided", 6) == 0)  { omp_set_schedule(omp_sched_guided, chunk > 0 ? chunk : 1); }
+    else { die("unknown --schedule"); }
+}
+
+// スレッドごとの所要時間（並列区間に入ってから自分の担当を終えるまで）と、計算した行数の合計。
+// 計測中だけ記録する。所要時間の差が、遅いスレッドを待っている時間になる
+static int g_record = 0;
+static int64_t g_busy_ns[MAX_THREADS * 8];
+static int64_t g_rows[MAX_THREADS * 8];
+static int64_t g_iter_imbalance_ns, g_iter_max_ns;  // 反復ごとの (最大 - 最小) と 最大 の合計
+
 static void run_once(KernelFn kernel, float* out, const float* x, const Weights* W, int split) {
     if (kernel == k_int8) { quantize_x(x, W->dim); }
+    int64_t busy[MAX_THREADS];
     for (int k = 0; k < split; k++) {
         int r0 = (int)((int64_t)W->rows * k / split);
         int r1 = (int)((int64_t)W->rows * (k + 1) / split);
         #pragma omp parallel
         {
-            int a, b;
-            thread_range(omp_get_thread_num(), r0, r1, &a, &b);
-            kernel(out, x, W, a, b);
+            int t = omp_get_thread_num();
+            int64_t t0 = g_record ? now_ns() : 0;
+            int rows = 0;
+            if (g_sched == SCHED_RANGE) {
+                int a, b;
+                thread_range(t, r0, r1, &a, &b);
+                kernel(out, x, W, a, b);
+                rows = b - a;
+            } else {
+                int n_blocks = (r1 - r0 + CLS_BLOCK - 1) / CLS_BLOCK;
+                #pragma omp for schedule(runtime) nowait
+                for (int blk = 0; blk < n_blocks; blk++) {
+                    int a = r0 + blk * CLS_BLOCK;
+                    int b = a + CLS_BLOCK < r1 ? a + CLS_BLOCK : r1;
+                    kernel(out, x, W, a, b);
+                    rows += b - a;
+                }
+            }
+            if (g_record) {
+                busy[t] = now_ns() - t0;
+                g_busy_ns[t * 8] += busy[t];
+                g_rows[t * 8] += rows;
+            }
+        }
+        if (g_record) {
+            int64_t lo = busy[0], hi = busy[0];
+            for (int t = 1; t < g_nthreads; t++) {
+                if (busy[t] < lo) { lo = busy[t]; }
+                if (busy[t] > hi) { hi = busy[t]; }
+            }
+            g_iter_imbalance_ns += hi - lo;
+            g_iter_max_ns += hi;
         }
     }
 }
@@ -528,6 +591,7 @@ int main(int argc, char** argv) {
 
     KernelFn kernel = select_kernel(o.kernel);
     setup_partition(o.weights);
+    setup_schedule(o.schedule, o.weights != NULL);
 
     float* ref_w32;
     Weights W = prepare_weights(&o, &ref_w32);
@@ -570,6 +634,7 @@ int main(int argc, char** argv) {
         if (flush) { g_sink[0] += flush_cache(flush, flush_n); }
         run_once(kernel, out, x, &W, o.split);
     }
+    g_record = 1;
     size_t cap = 1 << 16, iters = 0;
     int64_t* t = malloc(cap * sizeof(int64_t));
     int64_t t_begin = now_ns();
@@ -580,6 +645,7 @@ int main(int argc, char** argv) {
         run_once(kernel, out, x, &W, o.split);
         t[iters++] = now_ns() - t0;
     }
+    g_record = 0;
     qsort(t, iters, sizeof(int64_t), cmp_i64);
     double med = t[iters / 2] / 1e3, p10 = t[iters / 10] / 1e3, p90 = t[iters * 9 / 10] / 1e3;
     double best = t[0] / 1e3;
@@ -592,14 +658,27 @@ int main(int argc, char** argv) {
         snprintf(weights, sizeof(weights), "%s", o.weights);
         for (char* c = weights; *c; c++) { if (*c == ',') { *c = ':'; } }
     }
+    // スレッドごとの平均の所要時間 [us] と平均の行数（スレッド番号順、':' 区切り）
+    char thr_busy[1024] = "", thr_rows[1024] = "";
+    size_t lb = 0, lr = 0;
+    size_t n_regions = iters * (size_t)o.split;
+    for (int i = 0; i < g_nthreads; i++) {
+        lb += snprintf(thr_busy + lb, sizeof(thr_busy) - lb, i ? ":%.1f" : "%.1f",
+                       g_busy_ns[i * 8] / 1e3 / n_regions);
+        lr += snprintf(thr_rows + lr, sizeof(thr_rows) - lr, i ? ":%.0f" : "%.0f",
+                       (double)g_rows[i * 8] / n_regions);
+    }
+    // 一番遅いスレッドを待つ時間の割合: 平均 (最大 - 最小) / 平均 最大
+    double imbalance = g_iter_max_ns ? 100.0 * g_iter_imbalance_ns / g_iter_max_ns : 0.0;
     long huge_kb = W.base ? anon_huge_kb(W.base) : -1;
     double gb_med = W.bytes ? W.bytes / (med * 1e-6) / 1e9 : 0.0;
     double gb_best = W.bytes ? W.bytes / (best * 1e-6) / 1e9 : 0.0;
 
-    printf("%s,%s,%s,%d,%d,%zu,%d,%d,%s,%s,%d,%d,%zu,%.3f,%.3f,%.3f,%.3f,%.2f,%.2f,%ld,%.3g,%d\n",
+    printf("%s,%s,%s,%d,%d,%zu,%d,%d,%s,%s,%d,%d,%zu,%.3f,%.3f,%.3f,%.3f,%.2f,%.2f,%ld,%.3g,%d,%s,%s,%s,%.1f\n",
            o.kernel, o.page, o.src, rows, dim, W.bytes, o.split, g_nthreads, cpus,
            weights, o.prefetch, o.flush_mb,
-           iters, med, p10, p90, best, gb_med, gb_best, huge_kb, max_err, argmax_ok);
+           iters, med, p10, p90, best, gb_med, gb_best, huge_kb, max_err, argmax_ok,
+           o.schedule, thr_busy, thr_rows, imbalance);
 
     // 最適化で計算が消されないように結果を使う
     volatile float keep = out[0] + g_sink[0];
