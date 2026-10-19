@@ -240,21 +240,25 @@ P4X は P4_HT と X4_2_2 を合わせた 8 スレッド（CPU 0-3, 4, 5, 8, 9）
 python3 bench_memopt/analyze_cls.py bench_memopt/cls/<timestamp>
 ```
 
-# 出力層の形式の切り替え（B1 / B2）
+# 出力層の形式の切り替え（B1 / B2 / B4）
 
 `run.c` の出力層は `-q` で重みの形式を選べる（既定は `fp32` で、出力は従来と同じ）。
 
 ```bash
-./run stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time" -q int8   # fp32 | fp16 | int8
+./run stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time" -q int8   # fp32 | fp16 | int8 | int8-exact
 ```
 
 - `fp16` / `int8` のコピーはモデルの読み込み時に作る。埋め込み表には fp32 の元データを使い続ける
 - カーネル（スカラー / AVX2+F16C / AVX-VNNI）は実行時に CPU を調べて選ぶので、`-march=native` なしのビルドでも SIMD 版が使われる。x86 以外と MSVC ではスカラー版になる
 - `int8` は 32 要素ごとに fp32 のスケールを持つ（`bench_cls` の `int8` と同じ。x も同じ形式に量子化する）。`dim` が 32 の倍数でないモデルでは使えない
+- `int8-exact` は B4（2段階の厳密な argmax）。int8 で全行の近似値と誤差の上限を計算し、argmax になりうる行（候補）だけを fp32 で計算し直す。greedy（`-t 0`）専用で、出力は fp32 と完全に一致するので `golden.sha256` で確認できる。終了時に stderr に候補の行数（1 トークンあたりの平均・最大）を出す
+  ```
+  int8-exact candidates per token: mean 2.2, max 29 (of 32000)
+  ```
 
 ## eval_cls
 
-`fp16` / `int8` は出力が変わるので、sha256 の代わりに `eval_cls` で fp32 との違いを見る（方針メモ 4.4 節）。
+`fp16` / `int8` は出力が変わるので、sha256 の代わりに `eval_cls` で fp32 との違いを見る（方針メモ 4.4 節）。`int8-exact` が fp32 と一致することの詳しい確認もここで行う。
 
 ```bash
 gcc -Ofast -fopenmp -march=native bench_memopt/eval_cls.c -lm -o eval_cls
@@ -267,7 +271,8 @@ OMP_NUM_THREADS=4 ./eval_cls stories15M.bin -i "Once upon a time" -i "Tom and hi
 | [1] `max_abs` / `mean_abs` | fp32 の greedy 生成の各位置で、同じ x から計算した logits の fp32 との最大誤差・平均誤差 |
 | [1] `argmax_agree` | 次のトークン（argmax）が fp32 と一致した位置の数 |
 | [1] `simd_vs_scalar` | SIMD 版とスカラー版の logits の最大差（SIMD のカーネルの確認。足し算の順番の違いだけなので 1e-4 程度以下になるはず） |
-| [2] | fp16 / int8 だけで greedy 生成し、生成したトークンが fp32 と先頭から何個同じか |
+| [2] | fp16 / int8 / int8-exact だけで greedy 生成し、生成したトークンが fp32 と先頭から何個同じか |
+| [3] | int8-exact の確認: argmax の一致、候補の行数、候補の行の値が fp32 の matmul とビット単位で同じか、int8 の近似値と fp32 の差が誤差の上限に収まっているか（`max \|fp32 - int8\| / bound` は上限のゆるさの目安）。すべて満たせば `result: OK`、終了コード 0 |
 
 [2] で早い位置からずれる場合は、fp32 でも1位と2位の logits がほぼ同じ（接戦）ことが多い。
 例えば "Tom and his dog went to the park" の最初の生成位置では、fp32 での1位と2位の差が 0.0009 しかない。
