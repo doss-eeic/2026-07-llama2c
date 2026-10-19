@@ -17,6 +17,7 @@
 | `run_cls.sh` | Step 2 の条件を一括で回す |
 | `analyze_cls.py` | Step 2 の集計（単体で再実行可能） |
 | `cls/<timestamp>/` | Step 2 の計測結果 |
+| `eval_cls.c` | 出力層を fp16 / int8 にしたときの精度の評価（末尾の節） |
 
 ## 前提
 
@@ -238,3 +239,35 @@ P4X は P4_HT と X4_2_2 を合わせた 8 スレッド（CPU 0-3, 4, 5, 8, 9）
 ```bash
 python3 bench_memopt/analyze_cls.py bench_memopt/cls/<timestamp>
 ```
+
+# 出力層の形式の切り替え（B1 / B2）
+
+`run.c` の出力層は `-q` で重みの形式を選べる（既定は `fp32` で、出力は従来と同じ）。
+
+```bash
+./run stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time" -q int8   # fp32 | fp16 | int8
+```
+
+- `fp16` / `int8` のコピーはモデルの読み込み時に作る。埋め込み表には fp32 の元データを使い続ける
+- カーネル（スカラー / AVX2+F16C / AVX-VNNI）は実行時に CPU を調べて選ぶので、`-march=native` なしのビルドでも SIMD 版が使われる。x86 以外と MSVC ではスカラー版になる
+- `int8` は 32 要素ごとに fp32 のスケールを持つ（`bench_cls` の `int8` と同じ。x も同じ形式に量子化する）。`dim` が 32 の倍数でないモデルでは使えない
+
+## eval_cls
+
+`fp16` / `int8` は出力が変わるので、sha256 の代わりに `eval_cls` で fp32 との違いを見る（方針メモ 4.4 節）。
+
+```bash
+gcc -Ofast -fopenmp -march=native bench_memopt/eval_cls.c -lm -o eval_cls
+OMP_NUM_THREADS=4 ./eval_cls stories15M.bin            # 既定の 4 プロンプト、256 ステップ
+OMP_NUM_THREADS=4 ./eval_cls stories15M.bin -i "Once upon a time" -i "Tom and his dog"
+```
+
+| 出力 | 内容 |
+|---|---|
+| [1] `max_abs` / `mean_abs` | fp32 の greedy 生成の各位置で、同じ x から計算した logits の fp32 との最大誤差・平均誤差 |
+| [1] `argmax_agree` | 次のトークン（argmax）が fp32 と一致した位置の数 |
+| [1] `simd_vs_scalar` | SIMD 版とスカラー版の logits の最大差（SIMD のカーネルの確認。足し算の順番の違いだけなので 1e-4 程度以下になるはず） |
+| [2] | fp16 / int8 だけで greedy 生成し、生成したトークンが fp32 と先頭から何個同じか |
+
+[2] で早い位置からずれる場合は、fp32 でも1位と2位の logits がほぼ同じ（接戦）ことが多い。
+例えば "Tom and his dog went to the park" の最初の生成位置では、fp32 での1位と2位の差が 0.0009 しかない。
