@@ -513,6 +513,7 @@ int main(int argc, char *argv[]) {
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
 
     stay_init(policy_path, transformer.config.n_layers);
+    generation_forward = forward;
 #ifdef LLAMA_PROFILE
     stay_timing_only = getenv("LLAMA_STAY_TIMING_ONLY") != NULL;
 #endif

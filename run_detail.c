@@ -875,6 +875,9 @@ long time_in_ms() {
 // ----------------------------------------------------------------------------
 // generation loop
 
+// The stay executable selects its persistent-worker forward before generation.
+static float* (*generation_forward)(Transformer*, int, int) = forward;
+
 void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, char *prompt, int steps) {
     char *empty_prompt = "";
     if (prompt == NULL) { prompt = empty_prompt; }
@@ -896,7 +899,7 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     while (pos < steps) {
 
         // forward the transformer to get logits for the next token
-        float* logits = forward(transformer, token, pos);
+        float* logits = generation_forward(transformer, token, pos);
 
         PROFILE_START(sample_start);
         // advance the state machine
@@ -1019,7 +1022,7 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
         if (token == 2) { user_turn = 1; }
 
         // forward the transformer to get logits for the next token
-        float* logits = forward(transformer, token, pos);
+        float* logits = generation_forward(transformer, token, pos);
         next = sample(sampler, logits);
         pos++;
 

@@ -133,6 +133,25 @@ class WorkerTests(unittest.TestCase):
         path.write_text(policy)
         return subprocess.run([str(self.binary), str(path)], capture_output=True, text=True, timeout=20)
 
+    def test_benchmark_stay_with_real_c_program(self):
+        from cpuprofiler.benchmark_stay import run
+        from cpuprofiler.benchmarkconfig import StayBenchmarkConfig
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            policy = root / "policy.txt"
+            cpus = ",".join(map(str, self.cpus))
+            policy.write_text(f"-2 default {self.cpus[0]}\n-1 output {cpus}\n")
+            for timing_only in (False, True):
+                summary, stages = run(StayBenchmarkConfig(
+                    policy=policy, output=root / str(timing_only), binary=self.cli,
+                    model=self.model, tokenizer=self.tokenizer, steps=4,
+                    prompt="", timing_only=timing_only, timeout=10))
+                self.assertGreater(summary["measured_tokens"], 0)
+                names = {stage["stage"] for stage in stages}
+                self.assertIn("forward_total", names)
+                self.assertEqual("output" in names, not timing_only)
+
     def test_disjoint_workers_and_layer_overrides_preserve_logits(self):
         a, b = self.cpus[0], self.cpus[-1]
         all_cpus = ",".join(map(str, self.cpus))

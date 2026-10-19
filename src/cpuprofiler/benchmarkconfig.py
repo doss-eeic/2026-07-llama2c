@@ -24,3 +24,22 @@ class BenchmarkConfig:
     skip_tokens: int = 1
     timeout: float = 300
     stages: tuple[str, ...] | None = None
+
+
+@dataclass
+class StayBenchmarkConfig:
+    """外部のCPUポリシーでstayを1回実行する設定。"""
+
+    policy: Path
+    output: Path
+    binary: Path = ROOT / "build/stay-run-detail"
+    model: Path = ROOT / "build/stories15M.bin"
+    tokenizer: Path = ROOT / "tokenizer.bin"
+    steps: int = 256
+    temperature: float = 0.0
+    seed: int = 42
+    prompt: str = "Once upon a time"
+    skip_tokens: int = 1
+    timeout: float = 300
+    stages: tuple[str, ...] | None = None
+    timing_only: bool = False  # Trueならforward_totalのみ計測

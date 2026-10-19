@@ -98,3 +98,44 @@ forward時間にsampling、tokenizer、文字出力、ログ保存は含めな�
 `summarize(profile['timings'], skip_tokens, selected_stages)` をimportできる。
 
 テスト：`python3 -m unittest discover -s tests -v`。
+
+## stay用benchmark
+
+Linuxで`make stayprofile CC=gcc`を実行し、`build/stay-run-detail`を用意する。
+`benchmark_stay.run(config)`は外部から渡したポリシーファイルで1回だけ実行する。
+CPU集合・演算別の参加人数はポリシーで指定し、stay自身がワーカーを固定する。
+
+```python
+from pathlib import Path
+from cpuprofiler.benchmarkconfig import StayBenchmarkConfig
+from cpuprofiler.benchmark_stay import run
+
+# policy.txt:
+# -2 default 0,1,2,3
+# -1 output 0,1,2,3,4,5,8,9
+summary, stages = run(StayBenchmarkConfig(
+    policy=Path("policy.txt"),
+    output=Path("benchmark/stay/trial-001"),
+))
+print(summary["forward_ms_per_token"])
+```
+
+戻り値とログ形式は`benchmark_detail`と共通。使用したポリシーも保存先の
+`policy.txt`にコピーして、そのコピーを実行に使用する。
+`timing_only=True`なら内部stageの時計を止めて`forward_total`のみを計測する。
+既定値は`False`で、`layer_total`や`output`も比較できる。
+OpenMP環境変数・threads・tasksetの指定は不要。
+
+比較用の`main()`は次のコマンドで実行する。
+
+```sh
+PYTHONPATH=src python3 -m cpuprofiler.benchmark_stay
+```
+
+P2、P4_HT、P4にCPU 4,5 / 6,7 / 8,9 / 10,11を加えた構成、
+P4_4567、P4_4589、P4_891011を固定構成として各1回実行する。
+さらに、defaultをP4_HT、outputだけをP4X4（P4_4589）またはP4_89にした
+2構成を実行する。CPU番号は既存のLinux測定機に合わせた例なので、必要に応じて
+`main()`の構成を変更する。
+`results/stay_<日時>/`に各試行のログ・ポリシーと`summary.csv`を保存する。
+自動探索や反復・統計評価は行わない。importだけでは実行しない。
