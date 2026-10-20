@@ -103,6 +103,24 @@ def main():
         "C_fixed8": BenchmarkConfig(cpus=cpus, threads=8, output=output_root / "C_fixed8",
                                     output_threads=8, output_schedule="static", output_chunk=0),
         "D_dynamic8": BenchmarkConfig(cpus=cpus, threads=8, output=output_root / "D_dynamic8"),
+        "P4": BenchmarkConfig(
+        cpus=(0, 1, 2, 3),
+        threads=4,
+        omp_proc_bind="close",
+        omp_schedule="static",
+        output_threads=4,
+        output_schedule="static",
+        output=output_root / "P4",
+        ),
+        "P4_E4": BenchmarkConfig(
+            cpus=(0, 1, 2, 3, 4, 5, 8, 9),
+            threads=8,
+            omp_proc_bind="close",
+            omp_schedule="static",
+            output_threads=8,
+            output_schedule="static",
+            output=output_root / "P4_E4",
+        ),
     }
     repeat = 3
     print(f"Results: {output_root}", flush=True)
