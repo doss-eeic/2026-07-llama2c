@@ -1,0 +1,5 @@
+phase,contrast,saved_ms_per_token,ci95_low,ci95_high,blocks
+screening_conditional,"P4E4 openmp: QKV x FFN, static, row1",0.047058823479179425,-0.0361990941196126,0.15927601700764105,5
+screening_conditional,"P4E4 pthread: QKV x FFN, static, row1",-0.002714932402256398,-0.05972850744767304,0.05429864264316024,5
+screening_conditional,"P2E8 openmp: QKV x FFN, static, row1",-0.00633484179831294,-0.05339366470668496,0.03891402638045895,5
+screening_conditional,"P2E8 pthread: QKV x FFN, static, row1",-0.11764705929216039,-0.2343891399282858,-0.000904977487103098,5

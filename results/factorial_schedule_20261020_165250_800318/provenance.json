@@ -1,0 +1,9 @@
+{
+  "screening": "factorial_20261020_164542_137621",
+  "binaries": "same screening binaries",
+  "repeat": 5,
+  "seed": 900,
+  "fusion": "both on",
+  "output_block": 4,
+  "output_chunk_physical_rows": 32
+}

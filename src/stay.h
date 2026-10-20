@@ -7,6 +7,10 @@
 #endif
 #include <pthread.h>
 #include <errno.h>
+#ifdef LLAMA_EXPERIMENT
+#include <stdatomic.h>
+static atomic_int stay_row_cursor;
+#endif
 #ifdef __linux__
 #include <sched.h>
 #elif !defined(STAY_TEST_UNPINNED)
@@ -105,6 +109,9 @@ static void *stay_worker(void *argument) {
 static void stay_dispatch(void (*function)(void *), void *context, int output) {
     stay_check(pthread_mutex_lock(&stay_mutex));
     stay_output_mode = output;
+#ifdef LLAMA_EXPERIMENT
+    atomic_store_explicit(&stay_row_cursor, 0, memory_order_relaxed);
+#endif
     stay_function = function;
     stay_context = context;
     stay_pending = output ? stay_count : stay_layer_count;

@@ -3,7 +3,7 @@
 #include "../run.c"
 
 int main(int argc, char **argv) {
-    #ifdef LLAMA_PARALLEL
+    #if defined(LLAMA_PARALLEL) || defined(LLAMA_EXPERIMENT)
     parallel_init();
     #endif
     Transformer t = {0};

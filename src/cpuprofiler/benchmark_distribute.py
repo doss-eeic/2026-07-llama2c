@@ -31,6 +31,10 @@ def build_command(config: BenchmarkConfig, output: Path, binary: Path) -> list[s
     flags = ["-DLLAMA_STAY", "-pthread"]
     if config.backend == "parallel":
         flags = ["-DLLAMA_PARALLEL", "-fopenmp"]
+    if config.backend == "openmp":
+        flags = ["-DLLAMA_PARALLEL", "-DLLAMA_EXPERIMENT", "-fopenmp"]
+    if config.backend == "pthread":
+        flags = ["-DLLAMA_STAY", "-DLLAMA_EXPERIMENT", "-pthread"]
     if config.backend == "upstream":
         # Compile the exact upstream file, not our run.c with stay disabled.
         contents = (ROOT / "run_detail.c").read_bytes() if config.profile else subprocess.check_output(
@@ -54,33 +58,48 @@ def execution_environment(config: BenchmarkConfig) -> dict[str, str]:
     # Use the runtime defaults for waiting; don't inherit another experiment's overrides.
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(("OMP_", "GOMP_", "STAY_", "PARALLEL_", "OUTPUT_"))}
-    if config.backend in ("upstream", "parallel"):
+    if config.backend in ("upstream", "parallel", "openmp"):
         env.update({
             "OMP_NUM_THREADS": str(config.threads), "OMP_DYNAMIC": "FALSE",
             "OMP_PROC_BIND": "close",
             "OMP_PLACES": ",".join(f"{{{cpu}}}" for cpu in config.cpus),
         })
-        if config.backend == "parallel":
-            env.update({"OMP_SCHEDULE": config.omp_schedule,
-                        "OUTPUT_THREADS": str(config.output_threads or config.threads),
-                        "OUTPUT_CHUNK": str(config.output_chunk),
-                        "PARALLEL_FUSE": "1" if config.fuse else "0",
-                        "PARALLEL_OUTPUT_BLOCK": str(config.output_block),
-                        "PARALLEL_ATTENTION_THREADS": str(config.attention_threads)})
+        if config.backend != "upstream":
+            env["OMP_SCHEDULE"] = config.omp_schedule
     else:
         env.update({
             "STAY_CPUS": ",".join(map(str, config.cpus)),
             "STAY_LAYER_THREADS": str(config.threads),
             "STAY_P_WEIGHT": str(config.p_weight),
         })
+    if config.backend in ("parallel", "openmp", "pthread"):
+        dynamic = config.omp_schedule.split(",")[0] == "dynamic"
+        output_dynamic = config.output_dynamic
+        if output_dynamic is None:
+            output_dynamic = dynamic if config.backend != "parallel" else True
+        parts = config.omp_schedule.split(",")
+        env.update({"OUTPUT_THREADS": str(config.output_threads or config.threads),
+                    "OUTPUT_CHUNK": str(config.output_chunk),
+                    "OUTPUT_DYNAMIC": str(int(output_dynamic)),
+                    "PARALLEL_FUSE": str(int(config.fuse)),
+                    "PARALLEL_FUSE_QKV": str(int(config.fuse if config.fuse_qkv is None else config.fuse_qkv)),
+                    "PARALLEL_FUSE_FFN": str(int(config.fuse if config.fuse_ffn is None else config.fuse_ffn)),
+                    "PARALLEL_OUTPUT_BLOCK": str(config.output_block),
+                    "PARALLEL_ATTENTION_THREADS": str(config.attention_threads),
+                    "PARALLEL_DYNAMIC": str(int(dynamic)),
+                    "PARALLEL_CHUNK": parts[1] if len(parts) > 1 else "16"})
     return env
 
 
 def run(config: BenchmarkConfig) -> dict[str, float]:
     """1回測定し、設定・標準出力・標準エラー・集計をoutputへ保存する。"""
     available = os.sched_getaffinity(0)
-    if config.backend not in ("stay", "upstream", "parallel"):
-        raise ValueError("backend must be stay, upstream or parallel")
+    if config.backend not in ("stay", "upstream", "parallel", "openmp", "pthread"):
+        raise ValueError("unknown backend")
+    if config.backend in ("openmp", "pthread") and config.omp_schedule not in ("static", "dynamic,16"):
+        raise ValueError("matched experiments support static or dynamic,16")
+    if config.backend == "pthread" and config.output_threads not in (None, len(config.cpus)):
+        raise ValueError("pthread output uses the entire pool in cpus")
     if not config.cpus or len(set(config.cpus)) != len(config.cpus):
         raise ValueError("cpus must contain distinct CPU IDs")
     if not set(config.cpus).issubset(available):

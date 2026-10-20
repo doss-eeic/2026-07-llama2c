@@ -46,10 +46,10 @@ result = run(BenchmarkConfig(
 通常版、stay版、未改造upstreamの経路を残して比較できる。
 
 この結果はワーカー管理方式の優劣を示さない。pthread常駐にも同じdynamic分配と
-QKV/FFN融合を適用できるが、その条件を揃えた比較は未実施。
+QKV/FFN融合を適用できる。その後、backend="openmp" / "pthread"で条件を揃えた要因比較を実施した。
 OpenMPの並列領域への入退場は、毎回OSスレッドを生成・終了することを意味しない。
-まずOpenMPで構成と融合を整理し、演算別人数切り替えが必要になった段階で
-同じ計算・分配・CPU配置のpthread常駐版と比較する。
+最新はproject/docs/AI向け_20261020_最適化要因比較.mdとbenchmark_factorial.pyを参照。
+以下の性能値は前段のCPU構成探索の記録。
 
 - Q/K/Vの行を1つの並列領域で分配し、3回の領域起動を1回に削減。
 - FFN up/gateの2つの内積とSwiGLUを行ごとに同時処理。SwiGLUも並列化。

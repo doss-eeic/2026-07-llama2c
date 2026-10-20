@@ -88,7 +88,7 @@ typedef struct {
 #endif
 
 #include "src/profile.h"
-#ifdef LLAMA_PARALLEL
+#if defined(LLAMA_PARALLEL) || defined(LLAMA_EXPERIMENT)
 #include "src/parallel.h"
 #endif
 
@@ -242,6 +242,9 @@ void softmax(float* x, int size) {
 }
 
 void matmul(float* xout, float* x, float* w, int n, int d) {
+#ifdef LLAMA_EXPERIMENT
+    parallel_matmul(xout, x, w, n, d);
+#else
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
     int i;
@@ -259,6 +262,7 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
         xout[i] = val;
     }
     STAY_SYNC();
+#endif
 }
 
 #ifdef LLAMA_STAY
@@ -308,8 +312,8 @@ float* forward(Transformer* transformer, int token, int pos) {
         STAY_SYNC();
 
         // qkv matmuls for this position
-        #ifdef LLAMA_PARALLEL
-        if (parallel_fuse) {
+        #if defined(LLAMA_PARALLEL) || defined(LLAMA_EXPERIMENT)
+        if (parallel_fuse_qkv) {
             parallel_qkv(s->q, s->k, s->v, s->xb, w->wq + l*dim*dim,
                          w->wk + l*dim*kv_dim, w->wv + l*dim*kv_dim, dim, kv_dim);
             PROFILE_END("qkv", l, q_start);
@@ -324,7 +328,7 @@ float* forward(Transformer* transformer, int token, int pos) {
         matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
 
         PROFILE_END("v_proj", l, v_start);
-        #ifdef LLAMA_PARALLEL
+        #if defined(LLAMA_PARALLEL) || defined(LLAMA_EXPERIMENT)
         }
         #endif
         PROFILE_START(rope_start);
@@ -356,7 +360,11 @@ float* forward(Transformer* transformer, int token, int pos) {
         #else
         #pragma omp parallel for private(h)
         #endif
+        #if defined(LLAMA_EXPERIMENT) && defined(LLAMA_STAY)
+        for (h = experiment_static_begin(p->n_heads); h < experiment_static_end(p->n_heads); h++) {
+        #else
         for (h = STAY_BEGIN(p->n_heads); h < STAY_END(p->n_heads); h++) {
+        #endif
             // get the query vector for this head
             float* q = s->q + h * head_size;
             // attention scores for this head
@@ -415,8 +423,8 @@ float* forward(Transformer* transformer, int token, int pos) {
         PROFILE_START(ffn_up_start);
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
-        #ifdef LLAMA_PARALLEL
-        if (parallel_fuse) {
+        #if defined(LLAMA_PARALLEL) || defined(LLAMA_EXPERIMENT)
+        if (parallel_fuse_ffn) {
             parallel_ffn(s->hb, s->xb, w->w1 + l*dim*hidden_dim,
                          w->w3 + l*dim*hidden_dim, dim, hidden_dim);
             PROFILE_END("ffn_up_gate_swiglu", l, ffn_up_start);
@@ -440,7 +448,7 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         PROFILE_END("swiglu", l, swiglu_start);
-        #ifdef LLAMA_PARALLEL
+        #if defined(LLAMA_PARALLEL) || defined(LLAMA_EXPERIMENT)
         }
         #endif
         PROFILE_START(ffn_down_start);
@@ -481,8 +489,13 @@ static void stay_forward_job(void *context) {
     StayForward *job = context;
     Transformer *t = job->transformer;
     if (stay_output_mode) {
+        #ifdef LLAMA_EXPERIMENT
+        parallel_output(t->state.logits, t->state.x, t->weights.wcls,
+                        t->config.dim, t->config.vocab_size);
+        #else
         matmul(t->state.logits, t->state.x, t->weights.wcls,
                t->config.dim, t->config.vocab_size);
+        #endif
     } else {
         stay_forward_layers(t, job->token, job->pos);
     }
@@ -1049,7 +1062,7 @@ void error_usage() {
 
 int main(int argc, char *argv[]) {
 
-    #ifdef LLAMA_PARALLEL
+    #if defined(LLAMA_PARALLEL) || defined(LLAMA_EXPERIMENT)
     parallel_init();
     #endif
 
