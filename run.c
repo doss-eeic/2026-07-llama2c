@@ -87,6 +87,8 @@ typedef struct {
 #define STAY_END(rows) (rows)
 #endif
 
+#include "src/profile.h"
+
 void malloc_run_state(RunState* s, Config* p) {
     // we calloc instead of malloc to keep valgrind happy
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
@@ -179,9 +181,18 @@ void build_transformer(Transformer *t, char* checkpoint_path) {
     read_checkpoint(checkpoint_path, &t->config, &t->weights, &t->fd, &t->data, &t->file_size);
     // allocate the RunState buffers
     malloc_run_state(&t->state, &t->config);
+#ifdef LLAMA_PROFILE
+    Config *p = &t->config;
+    snprintf(profile_model_json, sizeof(profile_model_json),
+             "\"dim\":%d,\"hidden_dim\":%d,\"n_layers\":%d,\"n_heads\":%d,"
+             "\"n_kv_heads\":%d,\"vocab_size\":%d,\"seq_len\":%d",
+             p->dim, p->hidden_dim, p->n_layers, p->n_heads,
+             p->n_kv_heads, p->vocab_size, p->seq_len);
+#endif
 }
 
 void free_transformer(Transformer* t) {
+    profile_dump();
     // close the memory mapping
     if (t->data != MAP_FAILED) { munmap(t->data, t->file_size); }
     if (t->fd != -1) { close(t->fd); }
@@ -259,16 +270,28 @@ float* forward(Transformer* transformer, int token, int pos) {
     int hidden_dim =  p->hidden_dim;
     int head_size = dim / p->n_heads;
 
+    #ifndef LLAMA_STAY
+    profile_reserve(p->n_layers, token);
+    PROFILE_START(forward_start);
+    #endif
+    PROFILE_START(stage_start);
+
     // copy the token embedding into x
     float* content_row = w->token_embedding_table + token * dim;
     STAY_SERIAL memcpy(x, content_row, dim*sizeof(*x));
 
+    PROFILE_END("embedding", -1, stage_start);
+
     // forward all the layers
     for(unsigned long long l = 0; l < p->n_layers; l++) {
 
+        PROFILE_START(layer_start);
+        PROFILE_START(attention_norm_start);
         // attention rmsnorm
         STAY_SERIAL rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
 
+        PROFILE_END("attention_norm", l, attention_norm_start);
+        PROFILE_START(q_start);
         // key and value point to the kv cache
         int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
         STAY_SERIAL {
@@ -279,9 +302,15 @@ float* forward(Transformer* transformer, int token, int pos) {
 
         // qkv matmuls for this position
         matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
+        PROFILE_END("q_proj", l, q_start);
+        PROFILE_START(k_start);
         matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
+        PROFILE_END("k_proj", l, k_start);
+        PROFILE_START(v_start);
         matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
 
+        PROFILE_END("v_proj", l, v_start);
+        PROFILE_START(rope_start);
         // RoPE relative positional encoding: complex-valued rotate q and k in each head
         STAY_SERIAL for (int i = 0; i < dim; i+=2) {
             int head_dim = i % head_size;
@@ -299,6 +328,8 @@ float* forward(Transformer* transformer, int token, int pos) {
             }
         }
 
+        PROFILE_END("rope", l, rope_start);
+        PROFILE_START(attention_start);
         // multihead attention. iterate over all heads
         int h;
         STAY_SYNC();
@@ -340,6 +371,11 @@ float* forward(Transformer* transformer, int token, int pos) {
             }
         }
 
+        #ifdef LLAMA_PROFILE
+        STAY_SYNC();
+        #endif
+        PROFILE_END("attention", l, attention_start);
+        PROFILE_START(attention_output_start);
         // final matmul to get the output of the attention
         matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
 
@@ -348,14 +384,22 @@ float* forward(Transformer* transformer, int token, int pos) {
             x[i] += s->xb2[i];
         }
 
+        PROFILE_END("attn_out", l, attention_output_start);
+        PROFILE_START(ffn_norm_start);
         // ffn rmsnorm
         STAY_SERIAL rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
 
+        PROFILE_END("ffn_norm", l, ffn_norm_start);
+        PROFILE_START(ffn_up_start);
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
         matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
+        PROFILE_END("ffn_up", l, ffn_up_start);
+        PROFILE_START(ffn_gate_start);
         matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
 
+        PROFILE_END("ffn_gate", l, ffn_gate_start);
+        PROFILE_START(swiglu_start);
         // SwiGLU non-linearity
         STAY_SERIAL for (int i = 0; i < hidden_dim; i++) {
             float val = s->hb[i];
@@ -366,6 +410,8 @@ float* forward(Transformer* transformer, int token, int pos) {
             s->hb[i] = val;
         }
 
+        PROFILE_END("swiglu", l, swiglu_start);
+        PROFILE_START(ffn_down_start);
         // final matmul to get the output of the ffn
         matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);
 
@@ -373,14 +419,21 @@ float* forward(Transformer* transformer, int token, int pos) {
         STAY_SERIAL for (int i = 0; i < dim; i++) {
             x[i] += s->xb[i];
         }
+        PROFILE_END("ffn_down", l, ffn_down_start);
+        PROFILE_END("layer_total", l, layer_start);
     }
 
+    PROFILE_START(final_norm_start);
     // final rmsnorm
     STAY_SERIAL rmsnorm(x, x, w->rms_final_weight, dim);
 
+    PROFILE_END("final_norm", -1, final_norm_start);
     // classifier into logits (the stay coordinator dispatches output separately)
 #ifndef LLAMA_STAY
+    PROFILE_START(output_start);
     matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+    PROFILE_END("output", -1, output_start);
+    PROFILE_END("forward_total", -1, forward_start);
 #endif
     return s->logits;
 }
@@ -400,9 +453,14 @@ static void stay_forward_job(void *context) {
 }
 float* forward(Transformer* transformer, int token, int pos) {
     if (!stay_initialized) stay_init();
+    profile_reserve(transformer->config.n_layers, token);
+    PROFILE_START(forward_start);
     StayForward job = {transformer, token, pos};
     stay_dispatch(stay_forward_job, &job, 0);
+    PROFILE_START(output_start);
     stay_dispatch(stay_forward_job, &job, 1);
+    PROFILE_END("output", -1, output_start);
+    PROFILE_END("forward_total", -1, forward_start);
     return transformer->state.logits;
 }
 #endif
@@ -795,6 +853,7 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         // forward the transformer to get logits for the next token
         float* logits = forward(transformer, token, pos);
 
+        PROFILE_START(sample_start);
         // advance the state machine
         if (pos < num_prompt_tokens - 1) {
             // if we are still processing the input prompt, force the next prompt token
@@ -803,6 +862,8 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
             // otherwise sample the next token from the logits
             next = sample(sampler, logits);
         }
+        PROFILE_END("sampling", -1, sample_start);
+        profile_token(pos, token, next);
         pos++;
 
         // data-dependent terminating condition: the BOS (=1) token delimits sequences
@@ -915,6 +976,7 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
         // forward the transformer to get logits for the next token
         float* logits = forward(transformer, token, pos);
         next = sample(sampler, logits);
+        profile_token(pos, token, next);
         pos++;
 
         if (user_idx >= num_prompt_tokens && next != 2) {

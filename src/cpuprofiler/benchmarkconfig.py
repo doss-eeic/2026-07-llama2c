@@ -24,3 +24,5 @@ class BenchmarkConfig:
     timeout: float = 300
     build: bool = True  # 実行前に現在のrun.cをコンパイルする
     backend: str = "stay"  # stay / upstream（本家の未改造run.c + OpenMP）
+    profile: bool = False  # Trueなら層・演算別計測を有効にする
+    skip_tokens: int = 1
