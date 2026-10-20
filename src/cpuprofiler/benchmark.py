@@ -6,7 +6,7 @@ def test_benchmark():
     result = subprocess.run(
         [
             "taskset", "-c", "4",
-            "./build/omp-run", "./build/stories15M.bin",
+            "./build/run-omp", "./build/stories15M.bin",
             "-n", "256",
             "-t", "0",
             "-s", "42",
@@ -48,6 +48,8 @@ class BenchmarkConfig:
     omp_dynamic: bool = False
     omp_proc_bind: str = "TRUE"
     omp_places: str = "threads"
+    output_threads: int = 8
+    omp_schedule: str = "dynamic,128"
 
 
 @dataclass
@@ -64,7 +66,7 @@ class BenchmarkResult:
 class BenchmarkRunner:
     def __init__(
         self,
-        binary_path: str = "./build/omp-run",
+        binary_path: str = "./build/run-omp",
         model_path: str = "./build/stories15M.bin"
     ):
         self.binary_path = Path(binary_path).resolve()
@@ -77,10 +79,15 @@ class BenchmarkRunner:
         if config.threads < 1:
             raise ValueError("threads must be positive")
 
+        if config.output_threads < 1:
+            raise ValueError("output_threads must be positive")
+
         # OpenMPの環境変数
         env = os.environ.copy()
 
         env["OMP_NUM_THREADS"] = str(config.threads)
+        env["OUTPUT_THREADS"] = str(config.output_threads)
+        env["OMP_SCHEDULE"] = config.omp_schedule
         env["OMP_DYNAMIC"] = (
             "TRUE" if config.omp_dynamic else "FALSE"
         )
@@ -131,8 +138,11 @@ if __name__ == "__main__":
     runner = BenchmarkRunner()
 
     config = BenchmarkConfig(
-        cpus=(0, 1, 2, 3),
-        threads=4
+        cpus=(0, 1, 2, 3, 4, 5, 8, 9),
+        threads=4,
+        output_threads=8,
+        omp_proc_bind="close",
+        omp_places="{0},{1},{2},{3},{4},{5},{8},{9}"
     )
 
     result = runner.run(config)
@@ -142,7 +152,8 @@ if __name__ == "__main__":
 
     config = BenchmarkConfig(
         cpus=(0, 1),
-        threads=2
+        threads=2,
+        output_threads=2
     )
 
     result = runner.run(config)

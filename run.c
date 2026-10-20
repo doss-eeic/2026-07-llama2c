@@ -13,6 +13,9 @@
     #include <unistd.h>
     #include <sys/mman.h>
 #endif
+
+static int output_threads = 8;
+
 // ----------------------------------------------------------------------------
 // Transformer model
 
@@ -228,6 +231,20 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     }
 }
 
+void matmul_output(float* xout, float* x, float* w, int n, int d) {
+    // W (d,n) @ x (n,) -> xout (d,)
+    // by far the most amount of time is spent inside this little function
+    int i;
+    #pragma omp parallel for num_threads(output_threads) schedule(runtime)
+    for (i = 0; i < d; i++) {
+        float val = 0.0f;
+        for (int j = 0; j < n; j++) {
+            val += w[i * n + j] * x[j];
+        }
+        xout[i] = val;
+    }
+}
+
 float* forward(Transformer* transformer, int token, int pos) {
 
     // a few convenience variables
@@ -357,7 +374,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     rmsnorm(x, x, w->rms_final_weight, dim);
 
     // classifier into logits
-    matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+    matmul_output(s->logits, x, w->wcls, p->dim, p->vocab_size);
     return s->logits;
 }
 
@@ -904,6 +921,16 @@ void error_usage() {
 }
 
 int main(int argc, char *argv[]) {
+
+    const char *env = getenv("OUTPUT_THREADS");
+    if (env) {
+        int n = atoi(env);
+        if (n < 1) {
+            fprintf(stderr, "Invalid OUTPUT_THREADS\n");
+            exit(EXIT_FAILURE);
+        }
+        output_threads = n;
+    }
 
     // default parameters
     char *checkpoint_path = NULL;  // e.g. out/model.bin
