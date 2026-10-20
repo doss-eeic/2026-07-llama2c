@@ -6,12 +6,28 @@
 #include <time.h>
 #include <math.h>
 #include <string.h>
+#include <stdint.h>
 #include <fcntl.h>
 #if defined _WIN32
     #include "win.h"
 #else
     #include <unistd.h>
     #include <sys/mman.h>
+#endif
+// x86 の GCC / clang では、出力層の SIMD カーネルを target 属性で作り、実行時に選ぶ。
+// それ以外（MSVC、ARM など）はスカラー版だけになる
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+    #define CLS_X86 1
+    #include <immintrin.h>
+    #include <cpuid.h>
+    // AVX-VNNI の intrinsics（_mm256_dpbusd_avx_epi32）は GCC 11 / clang 12 から
+    #if defined(__clang__)
+        #if !defined(__apple_build_version__) && __clang_major__ >= 12
+            #define CLS_VNNI 1
+        #endif
+    #elif __GNUC__ >= 11
+        #define CLS_VNNI 1
+    #endif
 #endif
 // ----------------------------------------------------------------------------
 // Transformer model
@@ -64,9 +80,34 @@ typedef struct {
     float* value_cache; // (layer, seq_len, dim)
 } RunState;
 
+// 出力層（classifier）の計算方法。-q で選ぶ。
+// CLS_INT8_EXACT は int8 で全行を近似し、argmax になりうる行だけを fp32 で計算し直す（greedy 専用）
+typedef enum { CLS_FP32, CLS_INT8_EXACT } ClsType;
+#define CLS_GROUP 32 // int8 のスケールを共有する要素数
+#define CLS_BLOCK 64 // 出力層の並列化の単位の行数
+#define CLS_BOUND_MARGIN (1.0f + 1.0f / 64) // CLS_INT8_EXACT の誤差の上限に掛ける余裕（丸めの分）
+// 出力層のカーネルで使う命令セット。起動時に CPU を調べて選ぶ
+typedef enum { CLS_ISA_SCALAR, CLS_ISA_AVX2, CLS_ISA_AVXVNNI } ClsIsa;
+
+typedef struct {
+    ClsType type;  // 出力層の計算方法（CLS_FP32 なら wcls をそのまま使う）
+    ClsIsa isa;    // int8 のカーネルの命令セット
+    int8_t* q8;    // int8 の wcls (vocab_size, dim)
+    float* q8s;    // int8 の wcls のスケール (vocab_size, dim / CLS_GROUP)
+    int8_t* xq;    // int8 に量子化した x (dim,)
+    float* xs;     // x のスケール (dim / CLS_GROUP,)
+    float* xk;     // 誤差の上限の、x のグループごとの係数 (dim / CLS_GROUP,)
+    float* bound;  // 行ごとの int8 の近似値の誤差の上限 (vocab_size,)
+    float* blk_lo; // 並列化の単位ごとの (近似値 - 上限) の最大 (n_blocks,)
+    int* blk_cand; // 並列化の単位ごとの候補の行数 (n_blocks,)
+    long long n_calls, n_cand; // 呼び出し回数と候補の行数の合計（統計用）
+    int max_cand;              // 1 回の呼び出しでの候補の行数の最大（統計用）
+} Classifier;
+
 typedef struct {
     Config config; // the hyperparameters of the architecture (the blueprint)
     TransformerWeights weights; // the weights of the model
+    Classifier cls; // int8 copy of wcls for the output layer
     RunState state; // buffers for the "wave" of activations in the forward pass
     // some more state needed to properly clean up the memory mapping (sigh)
     int fd; // file descriptor for memory mapping
@@ -166,6 +207,20 @@ void build_transformer(Transformer *t, char* checkpoint_path) {
     read_checkpoint(checkpoint_path, &t->config, &t->weights, &t->fd, &t->data, &t->file_size);
     // allocate the RunState buffers
     malloc_run_state(&t->state, &t->config);
+    // the output layer uses wcls as is (fp32) until build_classifier() is called
+    memset(&t->cls, 0, sizeof(t->cls));
+}
+
+void free_classifier(Classifier* c) {
+    free(c->q8);
+    free(c->q8s);
+    free(c->xq);
+    free(c->xs);
+    free(c->xk);
+    free(c->bound);
+    free(c->blk_lo);
+    free(c->blk_cand);
+    memset(c, 0, sizeof(*c));
 }
 
 void free_transformer(Transformer* t) {
@@ -174,6 +229,7 @@ void free_transformer(Transformer* t) {
     if (t->fd != -1) { close(t->fd); }
     // free the RunState buffers
     free_run_state(&t->state);
+    free_classifier(&t->cls);
 }
 
 // ----------------------------------------------------------------------------
@@ -226,6 +282,263 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
         }
         xout[i] = val;
     }
+}
+
+// ----------------------------------------------------------------------------
+// Output layer (classifier): 2段階の厳密な argmax（B4）
+// 方針: プロジェクト/output-layer-memory-optimization.md 4.5 節
+//
+// 出力層は 1 トークンごとに wcls（vocab_size x dim）を丸ごと読むので、メモリ帯域で律速する。
+// 読み込み時に wcls の int8 のコピーを作り、1段目はそれを読む（読む量は約 1/3.5）。
+// 埋め込み表としては fp32 の元データを使い続ける（1 トークンにつき 1 行しか読まないため）。
+
+// CLS_GROUP 要素を int8 に量子化する（絶対値の最大が 127 になるスケール。runq.c の Q8_0 と同じ方式）
+static void cls_quantize_group(int8_t* q, float* scale, const float* x) {
+    float amax = 0.0f;
+    for (int j = 0; j < CLS_GROUP; j++) { amax = fmaxf(amax, fabsf(x[j])); }
+    float s = amax / 127.0f;
+    float inv = s > 0.0f ? 1.0f / s : 0.0f;
+    for (int j = 0; j < CLS_GROUP; j++) { q[j] = (int8_t)lrintf(x[j] * inv); }
+    *scale = s;
+}
+
+// カーネルは行 [r0, r1) の int8 の近似値を out に、誤差の上限を c->bound に書く。
+// x の代わりに量子化済みの c->xq, c->xs を使う
+typedef void (*ClsRowsFn)(float* out, const Classifier* c, int n, int r0, int r1);
+
+// int8 の近似値の誤差の上限: Σ_g (重みのスケール) x (x の係数)。導出は cls_rescore() の上のコメント
+static inline float cls_row_bound(const float* rs, const float* xk, int gpr) {
+    float b = 0.0f;
+    for (int g = 0; g < gpr; g++) { b += rs[g] * xk[g]; }
+    return b;
+}
+
+// スカラー版はどのマシンでも動く。SIMD 版の正しさの基準にもする
+static void cls_rows_int8_scalar(float* out, const Classifier* c, int n, int r0, int r1) {
+    int gpr = n / CLS_GROUP;
+    for (int i = r0; i < r1; i++) {
+        const int8_t* row = c->q8 + (size_t)i * n;
+        const float* rs = c->q8s + (size_t)i * gpr;
+        float val = 0.0f;
+        for (int g = 0; g < gpr; g++) {
+            int32_t isum = 0;
+            for (int j = 0; j < CLS_GROUP; j++) {
+                isum += (int32_t)row[g * CLS_GROUP + j] * c->xq[g * CLS_GROUP + j];
+            }
+            val += (float)isum * (rs[g] * c->xs[g]);
+        }
+        out[i] = val;
+        c->bound[i] = cls_row_bound(rs, c->xk, gpr);
+    }
+}
+
+#ifdef CLS_X86
+#define CLS_TARGET_AVX2 __attribute__((target("avx2,fma")))
+
+CLS_TARGET_AVX2 static inline float cls_hsum256(__m256 v) {
+    __m128 s = _mm_add_ps(_mm256_castps256_ps128(v), _mm256_extractf128_ps(v, 1));
+    s = _mm_add_ps(s, _mm_movehl_ps(s, s));
+    s = _mm_add_ss(s, _mm_movehdup_ps(s));
+    return _mm_cvtss_f32(s);
+}
+
+// 符号付き x 符号付きの積和を、|w| x sign(x, w) の符号なし x 符号付きに直して maddubs で計算する。
+// 量子化した値は |w|, |x| <= 127 なので、16 ビットの途中の和は飽和しない
+CLS_TARGET_AVX2 static inline __m256i cls_dot_i8_avx2(__m256i w, __m256i x) {
+    __m256i p16 = _mm256_maddubs_epi16(_mm256_sign_epi8(w, w), _mm256_sign_epi8(x, w));
+    return _mm256_madd_epi16(p16, _mm256_set1_epi16(1));
+}
+
+CLS_TARGET_AVX2 static void cls_rows_int8_avx2(float* out, const Classifier* c, int n, int r0, int r1) {
+    int gpr = n / CLS_GROUP;
+    for (int i = r0; i < r1; i++) {
+        const int8_t* row = c->q8 + (size_t)i * n;
+        const float* rs = c->q8s + (size_t)i * gpr;
+        __m256 acc = _mm256_setzero_ps();
+        for (int g = 0; g < gpr; g++) {
+            __m256i wv = _mm256_loadu_si256((const __m256i*)(row + g * CLS_GROUP));
+            __m256i xv = _mm256_loadu_si256((const __m256i*)(c->xq + g * CLS_GROUP));
+            __m256 p = _mm256_cvtepi32_ps(cls_dot_i8_avx2(wv, xv));
+            acc = _mm256_fmadd_ps(p, _mm256_set1_ps(rs[g] * c->xs[g]), acc);
+        }
+        out[i] = cls_hsum256(acc);
+        c->bound[i] = cls_row_bound(rs, c->xk, gpr);
+    }
+}
+
+#ifdef CLS_VNNI
+#define CLS_TARGET_VNNI __attribute__((target("avx2,fma,avxvnni")))
+
+// AVX2 版と同じ計算を、maddubs + madd の代わりに vpdpbusd 1 命令で行う
+CLS_TARGET_VNNI static void cls_rows_int8_vnni(float* out, const Classifier* c, int n, int r0, int r1) {
+    int gpr = n / CLS_GROUP;
+    for (int i = r0; i < r1; i++) {
+        const int8_t* row = c->q8 + (size_t)i * n;
+        const float* rs = c->q8s + (size_t)i * gpr;
+        __m256 acc = _mm256_setzero_ps();
+        for (int g = 0; g < gpr; g++) {
+            __m256i wv = _mm256_loadu_si256((const __m256i*)(row + g * CLS_GROUP));
+            __m256i xv = _mm256_loadu_si256((const __m256i*)(c->xq + g * CLS_GROUP));
+            __m256i dot = _mm256_dpbusd_avx_epi32(_mm256_setzero_si256(),
+                                                  _mm256_sign_epi8(wv, wv), _mm256_sign_epi8(xv, wv));
+            acc = _mm256_fmadd_ps(_mm256_cvtepi32_ps(dot), _mm256_set1_ps(rs[g] * c->xs[g]), acc);
+        }
+        out[i] = cls_hsum256(acc);
+        c->bound[i] = cls_row_bound(rs, c->xk, gpr);
+    }
+}
+#endif // CLS_VNNI
+#endif // CLS_X86
+
+// 実行中の CPU と OS が使える命令セットを調べる（-march=native なしのビルドでも SIMD 版を使うため）
+static ClsIsa cls_detect_isa(void) {
+#ifdef CLS_X86
+    unsigned int a, b, c, d;
+    if (__get_cpuid_max(0, NULL) < 7) { return CLS_ISA_SCALAR; }
+    __cpuid(1, a, b, c, d);
+    int fma = (c >> 12) & 1, osxsave = (c >> 27) & 1, avx = (c >> 28) & 1;
+    if (!(fma && osxsave && avx)) { return CLS_ISA_SCALAR; }
+    // OS が YMM レジスタを退避・復帰するか（XCR0 の bit 1, 2）
+    unsigned int xcr0_lo, xcr0_hi;
+    __asm__ volatile("xgetbv" : "=a"(xcr0_lo), "=d"(xcr0_hi) : "c"(0));
+    (void)xcr0_hi;
+    if ((xcr0_lo & 6) != 6) { return CLS_ISA_SCALAR; }
+    __cpuid_count(7, 0, a, b, c, d);
+    if (!((b >> 5) & 1)) { return CLS_ISA_SCALAR; } // AVX2
+#ifdef CLS_VNNI
+    if (a >= 1) { // leaf 7 の subleaf 1 があれば、その EAX bit 4 が AVX-VNNI
+        __cpuid_count(7, 1, a, b, c, d);
+        if ((a >> 4) & 1) { return CLS_ISA_AVXVNNI; }
+    }
+#endif
+    return CLS_ISA_AVX2;
+#else
+    return CLS_ISA_SCALAR;
+#endif
+}
+
+static ClsRowsFn cls_rows_fn(ClsIsa isa) {
+#ifdef CLS_X86
+#ifdef CLS_VNNI
+    if (isa == CLS_ISA_AVXVNNI) { return cls_rows_int8_vnni; }
+#endif
+    if (isa != CLS_ISA_SCALAR) { return cls_rows_int8_avx2; }
+#endif
+    (void)isa;
+    return cls_rows_int8_scalar;
+}
+
+// 出力層の計算方法を選び、CLS_INT8_EXACT なら wcls の int8 のコピーと作業用のバッファを作る
+void build_classifier(Transformer* t, ClsType type) {
+    Config* p = &t->config;
+    Classifier* c = &t->cls;
+    c->type = type;
+    if (type == CLS_FP32) { return; }
+    if (p->dim % CLS_GROUP != 0) {
+        fprintf(stderr, "int8 output layer requires dim to be a multiple of %d (dim = %d)\n", CLS_GROUP, p->dim);
+        exit(EXIT_FAILURE);
+    }
+    const float* w = t->weights.wcls;
+    size_t groups = (size_t)p->vocab_size * p->dim / CLS_GROUP;
+    int n_blocks = (p->vocab_size + CLS_BLOCK - 1) / CLS_BLOCK;
+    c->isa = cls_detect_isa();
+    c->q8 = malloc(groups * CLS_GROUP * sizeof(int8_t));
+    c->q8s = malloc(groups * sizeof(float));
+    c->xq = malloc(p->dim * sizeof(int8_t));
+    c->xs = malloc(p->dim / CLS_GROUP * sizeof(float));
+    c->xk = malloc(p->dim / CLS_GROUP * sizeof(float));
+    c->bound = malloc(p->vocab_size * sizeof(float));
+    c->blk_lo = malloc(n_blocks * sizeof(float));
+    c->blk_cand = malloc(n_blocks * sizeof(int));
+    if (!c->q8 || !c->q8s || !c->xq || !c->xs || !c->xk || !c->bound || !c->blk_lo || !c->blk_cand) {
+        fprintf(stderr, "malloc failed!\n"); exit(EXIT_FAILURE);
+    }
+    for (size_t g = 0; g < groups; g++) {
+        cls_quantize_group(c->q8 + g * CLS_GROUP, c->q8s + g, w + g * CLS_GROUP);
+    }
+}
+
+// x を int8 に量子化し、誤差の上限の係数 c->xk も計算する
+static void cls_quantize_x(Classifier* c, const float* x, int n) {
+    for (int g = 0; g < n / CLS_GROUP; g++) {
+        const float* xg = x + g * CLS_GROUP;
+        int8_t* qg = c->xq + g * CLS_GROUP;
+        cls_quantize_group(qg, c->xs + g, xg);
+        float sum_x = 0.0f, sum_e = 0.0f;
+        for (int j = 0; j < CLS_GROUP; j++) {
+            sum_x += fabsf(xg[j]);
+            sum_e += fabsf(xg[j] - c->xs[g] * qg[j]);
+        }
+        c->xk[g] = CLS_BOUND_MARGIN * (0.5f * sum_x + 127.0f * sum_e);
+    }
+}
+
+// 1段目: int8 で全行の近似値 y'_i を計算する。w = s_w q_w + e_w（|e_w| <= s_w / 2）、
+//   x = s_x q_x + e_x と書くと、真の値との差は y_i - y'_i = Σ_j (s_w q_w,j e_x,j + e_w,j x_j) なので、
+//   32 要素のグループ g ごとに |q_w| <= 127 を使って
+//     |y_i - y'_i| <= Σ_g s_w,g (Σ_j |x_j| / 2 + 127 Σ_j |e_x,j|)
+//   となる。括弧の中は x だけで決まるので、トークンごとに c->xk に計算しておく。
+//   浮動小数点の丸め（量子化、近似値、fp32 の matmul 自体の足し算）による差は、最悪でも上限の 0.5% 程度なので、
+//   上限を CLS_BOUND_MARGIN 倍して含める。
+// 2段目: 下限 y'_i - B_i の最大を L とし、上限 y'_i + B_i が L 以上の行だけを fp32 で計算し直す。
+//   それ以外の行は fp32 で計算しても L 未満なので argmax にならない。計算し直す行は matmul と同じ形の
+//   ループで計算し、fp32 の matmul とビット単位で同じ値にするので、greedy の出力は fp32 と完全に一致する。
+//   候補でない行には近似値が残るが、どれも L 未満なので argmax は変わらない（temperature > 0 では使えない）。
+static void cls_rescore(Transformer* t, float* xout, float* x, int n_blocks) {
+    Classifier* c = &t->cls;
+    int n = t->config.dim;
+    int d = t->config.vocab_size;
+    float* w = t->weights.wcls;
+    float lo = c->blk_lo[0];
+    for (int b = 1; b < n_blocks; b++) { lo = fmaxf(lo, c->blk_lo[b]); }
+    int b;
+    #pragma omp parallel for private(b)
+    for (b = 0; b < n_blocks; b++) {
+        int r0 = b * CLS_BLOCK;
+        int r1 = r0 + CLS_BLOCK < d ? r0 + CLS_BLOCK : d;
+        int cand = 0;
+        for (int i = r0; i < r1; i++) {
+            if (xout[i] + c->bound[i] < lo) { continue; }
+            // matmul と同じ形のループ（足し算の順番を揃え、結果のビットを fp32 の matmul と同じにする）
+            float val = 0.0f;
+            for (int j = 0; j < n; j++) {
+                val += w[i * n + j] * x[j];
+            }
+            xout[i] = val;
+            cand++;
+        }
+        c->blk_cand[b] = cand;
+    }
+    int total = 0;
+    for (int k = 0; k < n_blocks; k++) { total += c->blk_cand[k]; }
+    c->n_calls++;
+    c->n_cand += total;
+    if (total > c->max_cand) { c->max_cand = total; }
+}
+
+// xout (vocab_size,) = wcls (vocab_size, dim) @ x (dim,)。計算方法は t->cls.type で選ぶ
+static void classifier_matmul(Transformer* t, float* xout, float* x) {
+    Classifier* c = &t->cls;
+    int n = t->config.dim;
+    int d = t->config.vocab_size;
+    if (c->type == CLS_FP32) {
+        matmul(xout, x, t->weights.wcls, n, d);
+        return;
+    }
+    cls_quantize_x(c, x, n);
+    ClsRowsFn rows = cls_rows_fn(c->isa);
+    int n_blocks = (d + CLS_BLOCK - 1) / CLS_BLOCK;
+    int b;
+    #pragma omp parallel for private(b)
+    for (b = 0; b < n_blocks; b++) {
+        int r0 = b * CLS_BLOCK;
+        int r1 = r0 + CLS_BLOCK < d ? r0 + CLS_BLOCK : d;
+        rows(xout, c, n, r0, r1);
+        float lo = xout[r0] - c->bound[r0];
+        for (int i = r0 + 1; i < r1; i++) { lo = fmaxf(lo, xout[i] - c->bound[i]); }
+        c->blk_lo[b] = lo;
+    }
+    cls_rescore(t, xout, x, n_blocks);
 }
 
 float* forward(Transformer* transformer, int token, int pos) {
@@ -357,7 +670,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     rmsnorm(x, x, w->rms_final_weight, dim);
 
     // classifier into logits
-    matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+    classifier_matmul(transformer, s->logits, x);
     return s->logits;
 }
 
@@ -900,6 +1213,8 @@ void error_usage() {
     fprintf(stderr, "  -z <string> optional path to custom tokenizer\n");
     fprintf(stderr, "  -m <string> mode: generate|chat, default: generate\n");
     fprintf(stderr, "  -y <string> (optional) system prompt in chat mode\n");
+    fprintf(stderr, "  -q <string> output layer: fp32|int8-exact, default: fp32\n");
+    fprintf(stderr, "              int8-exact: int8 + fp32 rescoring, same output as fp32 (needs -t 0)\n");
     exit(EXIT_FAILURE);
 }
 
@@ -915,6 +1230,7 @@ int main(int argc, char *argv[]) {
     unsigned long long rng_seed = 0; // seed rng with time by default
     char *mode = "generate";    // generate|chat
     char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
+    char *cls_name = "fp32";    // output layer: fp32|int8-exact
 
     // poor man's C argparse so we can override the defaults above from the command line
     if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
@@ -932,6 +1248,7 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'z') { tokenizer_path = argv[i + 1]; }
         else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
         else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
+        else if (argv[i][1] == 'q') { cls_name = argv[i + 1]; }
         else { error_usage(); }
     }
 
@@ -940,10 +1257,20 @@ int main(int argc, char *argv[]) {
     if (temperature < 0.0) temperature = 0.0;
     if (topp < 0.0 || 1.0 < topp) topp = 0.9;
     if (steps < 0) steps = 0;
+    ClsType cls_type = CLS_FP32;
+    if (strcmp(cls_name, "fp32") == 0) { cls_type = CLS_FP32; }
+    else if (strcmp(cls_name, "int8-exact") == 0) { cls_type = CLS_INT8_EXACT; }
+    else { fprintf(stderr, "unknown output layer: %s\n", cls_name); error_usage(); }
+    // int8-exact は argmax の行以外の logits が近似値なので、サンプリングには使えない
+    if (cls_type == CLS_INT8_EXACT && temperature != 0.0f) {
+        fprintf(stderr, "-q int8-exact requires greedy decoding (-t 0)\n");
+        error_usage();
+    }
 
     // build the Transformer via the model .bin file
     Transformer transformer;
     build_transformer(&transformer, checkpoint_path);
+    build_classifier(&transformer, cls_type);
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
 
     // build the Tokenizer via the tokenizer .bin file
@@ -962,6 +1289,12 @@ int main(int argc, char *argv[]) {
     } else {
         fprintf(stderr, "unknown mode: %s\n", mode);
         error_usage();
+    }
+    // 2段目で fp32 で計算し直した行の数（2段目のコストの把握用）
+    if (transformer.cls.type == CLS_INT8_EXACT && transformer.cls.n_calls > 0) {
+        fprintf(stderr, "int8-exact candidates per token: mean %.1f, max %d (of %d)\n",
+                (double)transformer.cls.n_cand / transformer.cls.n_calls,
+                transformer.cls.max_cand, transformer.config.vocab_size);
     }
 
     // memory and file handles cleanup
