@@ -1,9 +1,10 @@
-"""BenchmarkConfigで設定し、現在のrun.cをビルド・測定する。"""
+"""stay版と本家未改造run.cのOpenMP版を同じ条件で測定する。"""
 
 import csv
 from dataclasses import asdict, replace
 from datetime import datetime
 import json
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -13,9 +14,9 @@ import statistics
 import subprocess
 
 if __package__:
-    from .benchmarkconfig import ROOT, BenchmarkConfig
+    from .benchmarkconfig import ROOT, UPSTREAM_REVISION, BenchmarkConfig
 else:
-    from benchmarkconfig import ROOT, BenchmarkConfig
+    from benchmarkconfig import ROOT, UPSTREAM_REVISION, BenchmarkConfig
 
 
 def project_path(path: Path) -> Path:
@@ -23,21 +24,57 @@ def project_path(path: Path) -> Path:
     return (ROOT / path).resolve()
 
 
+def build_command(config: BenchmarkConfig, output: Path, binary: Path) -> list[str]:
+    source = ROOT / "run.c"
+    flags = ["-DLLAMA_STAY", "-pthread"]
+    if config.backend == "upstream":
+        # Compile the exact upstream file, not our run.c with stay disabled.
+        contents = subprocess.check_output(
+            ["git", "show", f"{UPSTREAM_REVISION}:run.c"], cwd=ROOT, timeout=config.timeout
+        )
+        source = output / "run.c"
+        source.write_bytes(contents)
+        (output / "source.json").write_text(json.dumps({
+            "revision": UPSTREAM_REVISION, "path": "run.c",
+            "sha256": hashlib.sha256(contents).hexdigest(),
+        }, indent=2) + "\n")
+        flags = ["-fopenmp"]
+    return ["gcc", "-Ofast", "-march=native", *flags,
+            str(source), "-lm", "-o", str(binary)]
+
+
+def execution_environment(config: BenchmarkConfig) -> dict[str, str]:
+    # Use the runtime defaults for waiting; don't inherit another experiment's overrides.
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("OMP_", "GOMP_", "STAY_"))}
+    if config.backend == "upstream":
+        env.update({
+            "OMP_NUM_THREADS": str(config.threads), "OMP_DYNAMIC": "FALSE",
+            "OMP_PROC_BIND": "close",
+            "OMP_PLACES": ",".join(f"{{{cpu}}}" for cpu in config.cpus),
+        })
+    else:
+        env.update({
+            "STAY_CPUS": ",".join(map(str, config.cpus)),
+            "STAY_LAYER_THREADS": str(config.threads),
+            "STAY_P_WEIGHT": str(config.p_weight),
+        })
+    return env
+
+
 def run(config: BenchmarkConfig) -> dict[str, float]:
     """1回測定し、設定・標準出力・標準エラー・集計をoutputへ保存する。"""
     available = os.sched_getaffinity(0)
+    if config.backend not in ("stay", "upstream"):
+        raise ValueError("backend must be stay or upstream")
     if not config.cpus or len(set(config.cpus)) != len(config.cpus):
         raise ValueError("cpus must contain distinct CPU IDs")
     if not set(config.cpus).issubset(available):
         raise ValueError(f"cpus must be available in current affinity: {sorted(available)}")
     if config.threads < 1 or config.threads > len(config.cpus):
         raise ValueError("threads must be between 1 and the number of CPUs")
-    if config.output_threads < 1 or config.output_threads > len(config.cpus):
-        raise ValueError("output_threads must be between 1 and the number of CPUs")
-    if config.output_schedule not in ("static", "dynamic"):
-        raise ValueError("output_schedule must be static or dynamic")
-    if not 0 <= config.output_chunk <= 2147483647:
-        raise ValueError("output_chunk must be between 0 and 2147483647")
+    if not 1 <= config.p_weight <= 16:
+        raise ValueError("p_weight must be between 1 and 16")
     if config.steps < 2 or config.timeout <= 0:
         raise ValueError("steps must be at least 2 and timeout must be positive")
 
@@ -54,26 +91,14 @@ def run(config: BenchmarkConfig) -> dict[str, float]:
     )
     if config.build:
         binary.parent.mkdir(parents=True, exist_ok=True)
+        command = build_command(config, output, binary)
         with (output / "build.log").open("w") as log:
-            subprocess.run([
-                "gcc", "-Ofast", "-march=native", "-fopenmp",
-                str(ROOT / "run.c"), "-lm", "-o", str(binary),
-            ], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
+            subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                 check=True, timeout=config.timeout)
     if not binary.is_file():
         raise FileNotFoundError(binary)
 
-    env = os.environ.copy()
-    env.update({
-        "OMP_NUM_THREADS": str(config.threads),
-        "OMP_SCHEDULE": config.omp_schedule,
-        "OMP_DYNAMIC": "TRUE" if config.omp_dynamic else "FALSE",
-        "OMP_PROC_BIND": config.omp_proc_bind,
-        "OMP_PLACES": config.omp_places or ",".join(f"{{{cpu}}}" for cpu in config.cpus),
-        "OUTPUT_THREADS": str(config.output_threads),
-        "OUTPUT_SCHEDULE": config.output_schedule,
-        "OUTPUT_CHUNK": str(config.output_chunk),
-    })
+    env = execution_environment(config)
     command = [
         "taskset", "-c", ",".join(map(str, config.cpus)), str(binary), str(model),
         "-z", str(tokenizer), "-n", str(config.steps), "-t", str(config.temperature),
@@ -96,34 +121,20 @@ def run(config: BenchmarkConfig) -> dict[str, float]:
 def main():
     # ここで測定条件を編集する。環境変数の設定や手動ビルドは不要。
     cpus = (0, 1, 2, 3, 4, 5, 8, 9)
-    output_root = ROOT / "results" / datetime.now().strftime("distribute_%Y%m%d_%H%M%S_%f")
+    output_root = ROOT / "results" / datetime.now().strftime("stay_%Y%m%d_%H%M%S_%f")
     configs = {
-        "A_fixed4": BenchmarkConfig(cpus=cpus, threads=4, output=output_root / "A_fixed4",
-                                    output_threads=4, output_schedule="static", output_chunk=0),
-        "B_switch4_8": BenchmarkConfig(cpus=cpus, threads=4, output=output_root / "B_switch4_8"),
-        "C_fixed8": BenchmarkConfig(cpus=cpus, threads=8, output=output_root / "C_fixed8",
-                                    output_threads=8, output_schedule="static", output_chunk=0),
-        "D_dynamic8": BenchmarkConfig(cpus=cpus, threads=8, output=output_root / "D_dynamic8"),
-        "P4": BenchmarkConfig(
-            cpus=(0, 1, 2, 3),
-            threads=4,
-            omp_proc_bind="close",
-            omp_schedule="static",
-            output_threads=4,
-            output_schedule="static",
-            output_chunk=0,
-            output=output_root / "P4",
-        ),
-        "P4_E4": BenchmarkConfig(
-            cpus=(0, 1, 2, 3, 4, 5, 8, 9),
-            threads=8,
-            omp_proc_bind="close",
-            omp_schedule="static",
-            output_threads=8,
-            output_schedule="static",
-            output_chunk=0,
-            output=output_root / "P4_E4",
-        ),
+        "Upstream_P4_HT": BenchmarkConfig(cpus=cpus[:4], threads=4,
+                                          output=output_root / "Upstream_P4_HT",
+                                          binary=ROOT / "build/upstream-run",
+                                          backend="upstream"),
+        "P4_fixed": BenchmarkConfig(cpus=cpus[:4], threads=4,
+                                    output=output_root / "P4_fixed", p_weight=1),
+        "P4E4_fixed": BenchmarkConfig(cpus=cpus, threads=8,
+                                      output=output_root / "P4E4_fixed", p_weight=1),
+        "Switch_equal": BenchmarkConfig(cpus=cpus, threads=4,
+                                        output=output_root / "Switch_equal", p_weight=1),
+        "Switch_weight2": BenchmarkConfig(cpus=cpus, threads=4,
+                                          output=output_root / "Switch_weight2", p_weight=2),
     }
     repeat = 10
     print(f"Results: {output_root}", flush=True)
@@ -136,20 +147,21 @@ def main():
 
     random.Random(42).shuffle(jobs)
     rates = {name: [] for name in configs}
-    built = set()
+    built = {}
     for name, config, i in jobs:
         binary = project_path(config.binary)
+        if binary in built and built[binary] != config.backend:
+            raise ValueError("stay and upstream must use different binary paths")
         should_build = config.build and binary not in built
         summary = run(replace(config, output=config.output / f"run_{i + 1:02d}",
                               build=should_build))
         if should_build:
-            built.add(binary)
+            built[binary] = config.backend
         rates[name].append(summary["tokens_per_second"])
         rows.append({"config": name, "run": i + 1,
+                     "backend": config.backend,
                      "cpus": ",".join(map(str, config.cpus)), "threads": config.threads,
-                     "schedule": config.omp_schedule, "output_threads": config.output_threads,
-                     "output_schedule": config.output_schedule,
-                     "output_chunk": config.output_chunk, **summary})
+                     "p_weight": config.p_weight, **summary})
         print(f"{name} run {i + 1}: {summary['tokens_per_second']:.2f} tokens/s", flush=True)
         with (output_root / "summary.csv").open("w", newline="") as file:
             writer = csv.DictWriter(file, fieldnames=list(rows[0]))

@@ -4,26 +4,23 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# Pinned upstream source; git show extracts the unmodified file for each build.
+UPSTREAM_REVISION = "350e04fe35433e6d2941dce5a1f53308f87058eb"
 
 
 @dataclass(frozen=True)
 class BenchmarkConfig:
     cpus: tuple[int, ...]
-    threads: int
+    threads: int  # cpus先頭の何人を層内で使うか
     output: Path
-    binary: Path = ROOT / "build/run-omp"
+    binary: Path = ROOT / "build/stay-run"
     model: Path = ROOT / "build/stories15M.bin"
     tokenizer: Path = ROOT / "tokenizer.bin"
     steps: int = 256
     temperature: float = 0.0
     seed: int = 42
     prompt: str = "Once upon a time"
-    omp_dynamic: bool = False
-    omp_proc_bind: str = "close"
-    omp_places: str | None = None  # Noneならcpusの順序で作る
-    omp_schedule: str = "static"  # 通常部分用
-    output_threads: int = 8
-    output_schedule: str = "dynamic"
-    output_chunk: int = 128  # staticで0ならOpenMP既定の分割
+    p_weight: int = 2  # outputで層内参加CPUに割り当てる重み（残りは1）
     timeout: float = 300
     build: bool = True  # 実行前に現在のrun.cをコンパイルする
+    backend: str = "stay"  # stay / upstream（本家の未改造run.c + OpenMP）

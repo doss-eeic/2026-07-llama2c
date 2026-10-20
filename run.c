@@ -1,5 +1,8 @@
 /* Inference for Llama-2 Transformer model in pure C */
 
+#if defined(LLAMA_STAY) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -7,22 +10,12 @@
 #include <math.h>
 #include <string.h>
 #include <fcntl.h>
-#if defined _OPENMP
-#include <omp.h>
-#endif
 #if defined _WIN32
     #include "win.h"
 #else
     #include <unistd.h>
     #include <sys/mman.h>
 #endif
-
-static int output_threads = 8;
-#if defined _OPENMP
-static omp_sched_t output_schedule = omp_sched_dynamic;
-static int output_chunk = 128;
-#endif
-
 // ----------------------------------------------------------------------------
 // Transformer model
 
@@ -83,6 +76,16 @@ typedef struct {
     float* data; // memory mapped data pointer
     ssize_t file_size; // size of the checkpoint file in bytes
 } Transformer;
+
+// Stay keeps the upstream numerical kernels shared with the reference build.
+#ifdef LLAMA_STAY
+#include "src/stay.h"
+#else
+#define STAY_SERIAL
+#define STAY_SYNC() ((void)0)
+#define STAY_BEGIN(rows) 0
+#define STAY_END(rows) (rows)
+#endif
 
 void malloc_run_state(RunState* s, Config* p) {
     // we calloc instead of malloc to keep valgrind happy
@@ -228,30 +231,21 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
     int i;
-    #pragma omp parallel for private(i) schedule(runtime)
-    for (i = 0; i < d; i++) {
+    STAY_SYNC();
+    #pragma omp parallel for private(i)
+    for (i = STAY_BEGIN(d); i < STAY_END(d); i++) {
         float val = 0.0f;
         for (int j = 0; j < n; j++) {
             val += w[i * n + j] * x[j];
         }
         xout[i] = val;
     }
+    STAY_SYNC();
 }
 
-void matmul_output(float* xout, float* x, float* w, int n, int d) {
-    // W (d,n) @ x (n,) -> xout (d,)
-    // by far the most amount of time is spent inside this little function
-    int i;
-    #pragma omp parallel for num_threads(output_threads) schedule(runtime)
-    for (i = 0; i < d; i++) {
-        float val = 0.0f;
-        for (int j = 0; j < n; j++) {
-            val += w[i * n + j] * x[j];
-        }
-        xout[i] = val;
-    }
-}
-
+#ifdef LLAMA_STAY
+#define forward stay_forward_layers
+#endif
 float* forward(Transformer* transformer, int token, int pos) {
 
     // a few convenience variables
@@ -267,18 +261,21 @@ float* forward(Transformer* transformer, int token, int pos) {
 
     // copy the token embedding into x
     float* content_row = w->token_embedding_table + token * dim;
-    memcpy(x, content_row, dim*sizeof(*x));
+    STAY_SERIAL memcpy(x, content_row, dim*sizeof(*x));
 
     // forward all the layers
     for(unsigned long long l = 0; l < p->n_layers; l++) {
 
         // attention rmsnorm
-        rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
+        STAY_SERIAL rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
 
         // key and value point to the kv cache
         int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
-        s->k = s->key_cache + loff + pos * kv_dim;
-        s->v = s->value_cache + loff + pos * kv_dim;
+        STAY_SERIAL {
+            s->k = s->key_cache + loff + pos * kv_dim;
+            s->v = s->value_cache + loff + pos * kv_dim;
+        }
+        STAY_SYNC();
 
         // qkv matmuls for this position
         matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
@@ -286,7 +283,7 @@ float* forward(Transformer* transformer, int token, int pos) {
         matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
 
         // RoPE relative positional encoding: complex-valued rotate q and k in each head
-        for (int i = 0; i < dim; i+=2) {
+        STAY_SERIAL for (int i = 0; i < dim; i+=2) {
             int head_dim = i % head_size;
             float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
             float val = pos * freq;
@@ -304,8 +301,9 @@ float* forward(Transformer* transformer, int token, int pos) {
 
         // multihead attention. iterate over all heads
         int h;
+        STAY_SYNC();
         #pragma omp parallel for private(h)
-        for (h = 0; h < p->n_heads; h++) {
+        for (h = STAY_BEGIN(p->n_heads); h < STAY_END(p->n_heads); h++) {
             // get the query vector for this head
             float* q = s->q + h * head_size;
             // attention scores for this head
@@ -346,12 +344,12 @@ float* forward(Transformer* transformer, int token, int pos) {
         matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
 
         // residual connection back into x
-        for (int i = 0; i < dim; i++) {
+        STAY_SERIAL for (int i = 0; i < dim; i++) {
             x[i] += s->xb2[i];
         }
 
         // ffn rmsnorm
-        rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
+        STAY_SERIAL rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
 
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
@@ -359,7 +357,7 @@ float* forward(Transformer* transformer, int token, int pos) {
         matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
 
         // SwiGLU non-linearity
-        for (int i = 0; i < hidden_dim; i++) {
+        STAY_SERIAL for (int i = 0; i < hidden_dim; i++) {
             float val = s->hb[i];
             // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
             val *= (1.0f / (1.0f + expf(-val)));
@@ -372,40 +370,42 @@ float* forward(Transformer* transformer, int token, int pos) {
         matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);
 
         // residual connection
-        for (int i = 0; i < dim; i++) {
+        STAY_SERIAL for (int i = 0; i < dim; i++) {
             x[i] += s->xb[i];
         }
     }
 
     // final rmsnorm
-    rmsnorm(x, x, w->rms_final_weight, dim);
+    STAY_SERIAL rmsnorm(x, x, w->rms_final_weight, dim);
 
-    #if defined _OPENMP
-    // 現在の設定を保存
-    int previous_threads = omp_get_max_threads();
-    omp_sched_t previous_schedule;
-    int previous_chunk;
-    omp_get_schedule(&previous_schedule, &previous_chunk);
-
-    // output用に切り替え
-    int change_threads = previous_threads != output_threads;
-    int change_schedule = (previous_schedule & ~omp_sched_monotonic) != output_schedule
-                          || previous_chunk != output_chunk;
-    if (change_threads) omp_set_num_threads(output_threads);
-    if (change_schedule) omp_set_schedule(output_schedule, output_chunk);
-    #endif
-
-    // classifier into logits
+    // classifier into logits (the stay coordinator dispatches output separately)
+#ifndef LLAMA_STAY
     matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
-
-    // 元の設定に戻す
-    #if defined _OPENMP
-    if (change_schedule) omp_set_schedule(previous_schedule, previous_chunk);
-    if (change_threads) omp_set_num_threads(previous_threads);
-    #endif
-
+#endif
     return s->logits;
 }
+
+#ifdef LLAMA_STAY
+#undef forward
+typedef struct { Transformer *transformer; int token, pos; } StayForward;
+static void stay_forward_job(void *context) {
+    StayForward *job = context;
+    Transformer *t = job->transformer;
+    if (stay_output_mode) {
+        matmul(t->state.logits, t->state.x, t->weights.wcls,
+               t->config.dim, t->config.vocab_size);
+    } else {
+        stay_forward_layers(t, job->token, job->pos);
+    }
+}
+float* forward(Transformer* transformer, int token, int pos) {
+    if (!stay_initialized) stay_init();
+    StayForward job = {transformer, token, pos};
+    stay_dispatch(stay_forward_job, &job, 0);
+    stay_dispatch(stay_forward_job, &job, 1);
+    return transformer->state.logits;
+}
+#endif
 
 // ----------------------------------------------------------------------------
 // The Byte Pair Encoding (BPE) Tokenizer that translates strings <-> tokens
@@ -950,38 +950,6 @@ void error_usage() {
 }
 
 int main(int argc, char *argv[]) {
-
-    const char *env = getenv("OUTPUT_THREADS");
-    if (env) {
-        int n = atoi(env);
-        if (n < 1) {
-            fprintf(stderr, "Invalid OUTPUT_THREADS\n");
-            exit(EXIT_FAILURE);
-        }
-        output_threads = n;
-    }
-
-    #if defined _OPENMP
-    env = getenv("OUTPUT_SCHEDULE");
-    if (env) {
-        if (strcmp(env, "static") == 0) output_schedule = omp_sched_static;
-        else if (strcmp(env, "dynamic") == 0) output_schedule = omp_sched_dynamic;
-        else {
-            fprintf(stderr, "Invalid OUTPUT_SCHEDULE (use static or dynamic)\n");
-            exit(EXIT_FAILURE);
-        }
-    }
-    env = getenv("OUTPUT_CHUNK");
-    if (env) {
-        char *end;
-        long n = strtol(env, &end, 10);
-        if (end == env || *end != '\0' || n < 0 || n > 2147483647L) {
-            fprintf(stderr, "Invalid OUTPUT_CHUNK\n");
-            exit(EXIT_FAILURE);
-        }
-        output_chunk = (int)n;
-    }
-    #endif
 
     // default parameters
     char *checkpoint_path = NULL;  // e.g. out/model.bin

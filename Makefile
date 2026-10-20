@@ -36,6 +36,13 @@ runomp: run.c
 	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run
 	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq
 
+# Linux: persistent pinned workers, sharing run.c with the reference build.
+STAY_CFLAGS ?= -Ofast -march=native
+.PHONY: staybuild
+staybuild: run.c src/stay.h
+	mkdir -p build
+	$(CC) $(STAY_CFLAGS) -DLLAMA_STAY -pthread run.c -lm -o build/stay-run
+
 .PHONY: win64
 win64:
 	x86_64-w64-mingw32-gcc -Ofast -D_WIN32 -o run.exe -I. run.c win.c
