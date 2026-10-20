@@ -7,6 +7,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdint.h>
+#include <float.h>
 #include <fcntl.h>
 #if defined _WIN32
     #include "win.h"
@@ -380,17 +381,162 @@ void softmax(float* x, int size) {
     }
 }
 
+// one row of a matmul. Shared by matmul() and the exact re-ranking of the int8 classifier (-a 1),
+// so that a re-ranked logit is bit-for-bit the value matmul() would have produced
+static inline float dot_f32(const float* w, const float* x, int n) {
+    float val = 0.0f;
+    for (int j = 0; j < n; j++) {
+        val += w[j] * x[j];
+    }
+    return val;
+}
+
 void matmul(float* xout, float* x, float* w, int n, int d) {
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
     int i;
     #pragma omp parallel for private(i)
     for (i = 0; i < d; i++) {
-        float val = 0.0f;
-        for (int j = 0; j < n; j++) {
-            val += w[i * n + j] * x[j];
+        xout[i] = dot_f32(w + (size_t)i * n, x, n);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// output layer (classifier) with int8 weights (-a option)
+//   -a 1  two-stage exact argmax: int8 scores for all rows, each with a guaranteed error bound,
+//         then only the rows that can still be the maximum are recomputed in fp32. With -t 0 the
+//         chosen token is the same as with the plain fp32 classifier.
+//   -a 2  int8 scores only (approximate; the output may differ)
+//   -a 3  verification: also computes the full fp32 logits and counts any disagreement
+
+typedef enum { CLS_FP32 = 0, CLS_INT8_EXACT = 1, CLS_INT8_APPROX = 2, CLS_VERIFY = 3 } ClassifierMode;
+
+typedef struct {
+    int mode;
+    int gs;         // quantization group size (elements per scale), must divide dim
+    int8_t* q;      // (vocab, dim) int8 weights
+    float* s;       // (vocab, dim/gs) scales
+    float* lo;      // (vocab,) lower bounds, work buffer
+    float* full;    // (vocab,) full fp32 logits, verification only
+    void* buf;      // mapping holding q and s
+    size_t buf_size;
+    // statistics since the tok/s timer started
+    long calls;
+    double cand_sum;
+    int cand_min, cand_max;
+    long verify_argmax_mismatch, verify_value_mismatch, verify_best_missed;
+} Classifier;
+static Classifier cls = { .mode = CLS_FP32, .gs = 144 };
+
+static const char* classifier_mode_name(int mode) {
+    switch (mode) {
+        case CLS_FP32: return "fp32";
+        case CLS_INT8_EXACT: return "int8+exact-argmax";
+        case CLS_INT8_APPROX: return "int8-approx";
+        case CLS_VERIFY: return "int8+exact-argmax(verify)";
+        default: return "unknown";
+    }
+}
+
+static void reset_classifier_stats(void) {
+    cls.calls = 0; cls.cand_sum = 0; cls.cand_min = 1 << 30; cls.cand_max = 0;
+    cls.verify_argmax_mismatch = cls.verify_value_mismatch = cls.verify_best_missed = 0;
+}
+
+#if !defined _WIN32
+void setup_classifier(float* wcls, int dim, int vocab, int huge_pages) {
+    // quantize the classifier rows into int8 with one scale per group of gs elements
+    if (cls.mode == CLS_FP32) { return; }
+    const size_t huge = 2 * 1024 * 1024;
+    int ng = dim / cls.gs;
+    size_t qbytes = (size_t)vocab * dim, sbytes = (size_t)vocab * ng * sizeof(float);
+    size_t sofs = (qbytes + 63) / 64 * 64;
+    cls.buf_size = sofs + sbytes + huge;
+    char* base = mmap(NULL, cls.buf_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (base == MAP_FAILED) { fprintf(stderr, "mmap failed!\n"); exit(EXIT_FAILURE); }
+    if (madvise(base, cls.buf_size, huge_pages ? MADV_HUGEPAGE : MADV_NOHUGEPAGE) != 0) {
+        fprintf(stderr, "madvise failed!\n"); exit(EXIT_FAILURE);
+    }
+    char* start = (char*)(((uintptr_t)base + huge - 1) & ~(uintptr_t)(huge - 1));
+    cls.buf = base;
+    cls.q = (int8_t*)start;
+    cls.s = (float*)(start + sofs);
+    cls.lo = malloc(vocab * sizeof(float));
+    cls.full = cls.mode == CLS_VERIFY ? malloc(vocab * sizeof(float)) : NULL;
+    if (!cls.lo || (cls.mode == CLS_VERIFY && !cls.full)) { fprintf(stderr, "malloc failed!\n"); exit(EXIT_FAILURE); }
+    int i;
+    #pragma omp parallel for private(i)
+    for (i = 0; i < vocab; i++) {
+        for (int g = 0; g < ng; g++) {
+            const float* w = wcls + (size_t)i * dim + g * cls.gs;
+            float wmax = 0.0f;
+            for (int j = 0; j < cls.gs; j++) { float a = fabsf(w[j]); if (a > wmax) wmax = a; }
+            float scale = wmax / 127.0f;
+            cls.s[(size_t)i * ng + g] = scale;
+            for (int j = 0; j < cls.gs; j++) {
+                cls.q[(size_t)i * dim + g * cls.gs + j] = scale > 0 ? (int8_t)roundf(w[j] / scale) : 0;
+            }
         }
-        xout[i] = val;
+    }
+    reset_classifier_stats();
+}
+#endif
+
+static void classifier_int8(float* logits, float* x, float* wcls, int n, int d) {
+    int gs = cls.gs, ng = n / gs;
+    // per group: sum of |x|. The rounding error of every int8 weight is at most scale/2, so the
+    // error of a row's score is at most 0.5 * sum_g scale_g * A_g (independent of the row's values)
+    float A[ng];
+    for (int g = 0; g < ng; g++) {
+        float a = 0.0f;
+        for (int j = 0; j < gs; j++) { a += fabsf(x[g * gs + j]); }
+        A[g] = a;
+    }
+    // -FLT_MAX, not -INFINITY, as the "not a candidate" marker and initial value: -Ofast implies
+    // -ffinite-math-only, under which comparisons against infinities may be optimized away
+    float L = -FLT_MAX; // the largest lower bound: the true maximum is at least this
+    int i;
+    #pragma omp parallel for private(i) reduction(max:L)
+    for (i = 0; i < d; i++) {
+        const int8_t* q = cls.q + (size_t)i * n;
+        const float* sc = cls.s + (size_t)i * ng;
+        float approx = 0.0f, bound = 0.0f;
+        for (int g = 0; g < ng; g++) {
+            float dot = 0.0f;
+            for (int j = 0; j < gs; j++) { dot += (float)q[g * gs + j] * x[g * gs + j]; }
+            approx += dot * sc[g];
+            bound += sc[g] * A[g];
+        }
+        if (cls.mode == CLS_INT8_APPROX) { logits[i] = approx; continue; }
+        // 0.51 instead of 0.5: margin for the float rounding of both the int8 and the fp32 dot products
+        float err = 0.51f * bound + 1e-6f;
+        logits[i] = approx + err; // upper bound
+        cls.lo[i] = approx - err;
+        if (cls.lo[i] > L) { L = cls.lo[i]; }
+    }
+    cls.calls++;
+    if (cls.mode == CLS_INT8_APPROX) { return; }
+    // only rows whose upper bound reaches L can be the maximum: recompute those exactly in fp32
+    int cand = 0;
+    for (i = 0; i < d; i++) {
+        if (logits[i] >= L) { logits[i] = dot_f32(wcls + (size_t)i * n, x, n); cand++; }
+        else { logits[i] = -FLT_MAX; }
+    }
+    cls.cand_sum += cand;
+    if (cand < cls.cand_min) { cls.cand_min = cand; }
+    if (cand > cls.cand_max) { cls.cand_max = cand; }
+    if (cls.mode == CLS_VERIFY) {
+        matmul(cls.full, x, wcls, n, d);
+        int best_full = 0, best_two = 0;
+        for (i = 1; i < d; i++) {
+            if (cls.full[i] > cls.full[best_full]) { best_full = i; }
+            if (logits[i] > logits[best_two]) { best_two = i; }
+        }
+        if (best_full != best_two) { cls.verify_argmax_mismatch++; }
+        if (logits[best_full] == -FLT_MAX) { cls.verify_best_missed++; }
+        for (i = 0; i < d; i++) {
+            if (logits[i] != -FLT_MAX && memcmp(&logits[i], &cls.full[i], sizeof(float)) != 0) { cls.verify_value_mismatch++; }
+        }
     }
 }
 
@@ -555,7 +701,8 @@ float* forward(Transformer* transformer, int token, int pos) {
     rmsnorm(x, x, w->rms_final_weight, dim);
 
     // classifier into logits
-    matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+    if (cls.mode == CLS_FP32) { matmul(s->logits, x, w->wcls, p->dim, p->vocab_size); }
+    else { classifier_int8(s->logits, x, w->wcls, p->dim, p->vocab_size); }
     stage_timing.layers_s += t_final - t_layers;
     stage_timing.final_s += now_s() - t_final;
     stage_timing.calls++;
@@ -970,7 +1117,7 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         token = next;
 
         // init the timer here because the first iteration can be slower
-        if (start == 0) { start = time_in_ms(); stage_timing = (StageTiming){0}; }
+        if (start == 0) { start = time_in_ms(); stage_timing = (StageTiming){0}; reset_classifier_stats(); }
     }
     printf("\n");
 
@@ -983,6 +1130,17 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         double n = stage_timing.calls;
         fprintf(stderr, "stage ms/token: layers=%.4f final=%.4f calls=%ld\n",
                 stage_timing.layers_s / n * 1e3, stage_timing.final_s / n * 1e3, stage_timing.calls);
+    }
+    if (cls.mode != CLS_FP32 && cls.calls > 0) {
+        fprintf(stderr, "classifier: mode=%s gs=%d calls=%ld", classifier_mode_name(cls.mode), cls.gs, cls.calls);
+        if (cls.mode != CLS_INT8_APPROX) {
+            fprintf(stderr, " candidates mean=%.2f min=%d max=%d", cls.cand_sum / cls.calls, cls.cand_min, cls.cand_max);
+        }
+        if (cls.mode == CLS_VERIFY) {
+            fprintf(stderr, " argmax_mismatch=%ld value_mismatch=%ld best_missed=%ld",
+                    cls.verify_argmax_mismatch, cls.verify_value_mismatch, cls.verify_best_missed);
+        }
+        fprintf(stderr, "\n");
     }
 
     free(prompt_tokens);
@@ -1108,6 +1266,9 @@ void error_usage() {
     fprintf(stderr, "  -y <string> (optional) system prompt in chat mode\n");
     fprintf(stderr, "  -w <int>    weights placement: 0=mmap (default) 1=copy 2=aligned 3=aligned+hugepage\n");
     fprintf(stderr, "              4=3+layer-contiguous 5=4+fused qkv,w1|w3 matmuls\n");
+    fprintf(stderr, "  -a <int>    output layer: 0=fp32 (default) 1=int8+exact argmax (needs -t 0)\n");
+    fprintf(stderr, "              2=int8 only (approximate) 3=1 plus verification against fp32\n");
+    fprintf(stderr, "  -g <int>    group size of the int8 output layer, divides dim, default 144\n");
     exit(EXIT_FAILURE);
 }
 
@@ -1124,6 +1285,8 @@ int main(int argc, char *argv[]) {
     char *mode = "generate";    // generate|chat
     char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
     int weights_mode = WEIGHTS_MMAP; // how the weights are placed in memory
+    int classifier_mode = CLS_FP32;  // how the output layer is computed
+    int group_size = 144;            // int8 output layer: elements per scale (larger groups vectorize better)
 
     // poor man's C argparse so we can override the defaults above from the command line
     if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
@@ -1142,6 +1305,8 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
         else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
         else if (argv[i][1] == 'w') { weights_mode = atoi(argv[i + 1]); }
+        else if (argv[i][1] == 'a') { classifier_mode = atoi(argv[i + 1]); }
+        else if (argv[i][1] == 'g') { group_size = atoi(argv[i + 1]); }
         else { error_usage(); }
     }
 
@@ -1151,6 +1316,11 @@ int main(int argc, char *argv[]) {
     if (topp < 0.0 || 1.0 < topp) topp = 0.9;
     if (steps < 0) steps = 0;
     if (weights_mode < WEIGHTS_MMAP || weights_mode > WEIGHTS_FUSED) { error_usage(); }
+    if (classifier_mode < CLS_FP32 || classifier_mode > CLS_VERIFY) { error_usage(); }
+    if ((classifier_mode == CLS_INT8_EXACT || classifier_mode == CLS_VERIFY) && temperature != 0.0f) {
+        fprintf(stderr, "note: -a %d needs greedy sampling (-t 0); using the fp32 output layer\n", classifier_mode);
+        classifier_mode = CLS_FP32;
+    }
 
     // build the Transformer via the model .bin file
     Transformer transformer;
@@ -1159,6 +1329,24 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "weights: mode=%s load_ms=%ld offset_mod64=%d anon_huge_kb=%ld\n",
             weights_mode_name(weights_mode), time_in_ms() - load_start,
             (int)((uintptr_t)transformer.weights.token_embedding_table % 64), anon_huge_pages_kb());
+    if (classifier_mode != CLS_FP32) {
+#if defined _WIN32
+        fprintf(stderr, "-a %d is not supported on Windows\n", classifier_mode); exit(EXIT_FAILURE);
+#else
+        if (group_size <= 0 || transformer.config.dim % group_size != 0) {
+            fprintf(stderr, "-g %d must divide dim=%d\n", group_size, transformer.config.dim); exit(EXIT_FAILURE);
+        }
+        cls.mode = classifier_mode;
+        cls.gs = group_size;
+        long q_start = time_in_ms();
+        setup_classifier(transformer.weights.wcls, transformer.config.dim, transformer.config.vocab_size,
+                         weights_mode >= WEIGHTS_ALIGNED_HUGE);
+        fprintf(stderr, "classifier: mode=%s gs=%d int8_mb=%.1f quant_ms=%ld anon_huge_kb=%ld\n",
+                classifier_mode_name(cls.mode), cls.gs,
+                (double)transformer.config.vocab_size * transformer.config.dim / 1e6,
+                time_in_ms() - q_start, anon_huge_pages_kb());
+#endif
+    }
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
 
     // build the Tokenizer via the tokenizer .bin file
@@ -1183,6 +1371,11 @@ int main(int argc, char *argv[]) {
     free_sampler(&sampler);
     free_tokenizer(&tokenizer);
     free_transformer(&transformer);
+#if !defined _WIN32
+    if (cls.buf != NULL) { munmap(cls.buf, cls.buf_size); }
+#endif
+    free(cls.lo);
+    free(cls.full);
     return 0;
 }
 #endif
