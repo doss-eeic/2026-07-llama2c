@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path
 import re
+import random
 import statistics
 import subprocess
 
@@ -104,13 +105,14 @@ def main():
                                     output_threads=8, output_schedule="static", output_chunk=0),
         "D_dynamic8": BenchmarkConfig(cpus=cpus, threads=8, output=output_root / "D_dynamic8"),
         "P4": BenchmarkConfig(
-        cpus=(0, 1, 2, 3),
-        threads=4,
-        omp_proc_bind="close",
-        omp_schedule="static",
-        output_threads=4,
-        output_schedule="static",
-        output=output_root / "P4",
+            cpus=(0, 1, 2, 3),
+            threads=4,
+            omp_proc_bind="close",
+            omp_schedule="static",
+            output_threads=4,
+            output_schedule="static",
+            output_chunk=0,
+            output=output_root / "P4",
         ),
         "P4_E4": BenchmarkConfig(
             cpus=(0, 1, 2, 3, 4, 5, 8, 9),
@@ -119,31 +121,43 @@ def main():
             omp_schedule="static",
             output_threads=8,
             output_schedule="static",
+            output_chunk=0,
             output=output_root / "P4_E4",
         ),
     }
-    repeat = 3
+    repeat = 10
     print(f"Results: {output_root}", flush=True)
     rows = []
-    for name, config in configs.items():
-        rates = []
-        for index in range(repeat):
-            summary = run(replace(config, output=config.output / f"run_{index + 1:02d}",
-                                  build=config.build and index == 0))
-            rates.append(summary["tokens_per_second"])
-            rows.append({"config": name, "run": index + 1,
-                         "cpus": ",".join(map(str, config.cpus)), "threads": config.threads,
-                         "schedule": config.omp_schedule, "output_threads": config.output_threads,
-                         "output_schedule": config.output_schedule,
-                         "output_chunk": config.output_chunk, **summary})
-            print(f"{name} run {index + 1}: {summary['tokens_per_second']:.2f} tokens/s", flush=True)
-            with (output_root / "summary.csv").open("w", newline="") as file:
-                writer = csv.DictWriter(file, fieldnames=list(rows[0]))
-                writer.writeheader()
-                writer.writerows(rows)
-        print(f"{name}: mean={statistics.mean(rates):.2f}, "
-              f"median={statistics.median(rates):.2f} tokens/s", flush=True)
+    jobs = [
+        (name, config, i)
+        for i in range(repeat)
+        for name, config in configs.items()
+    ]
 
+    random.Random(42).shuffle(jobs)
+    rates = {name: [] for name in configs}
+    built = set()
+    for name, config, i in jobs:
+        binary = project_path(config.binary)
+        should_build = config.build and binary not in built
+        summary = run(replace(config, output=config.output / f"run_{i + 1:02d}",
+                              build=should_build))
+        if should_build:
+            built.add(binary)
+        rates[name].append(summary["tokens_per_second"])
+        rows.append({"config": name, "run": i + 1,
+                     "cpus": ",".join(map(str, config.cpus)), "threads": config.threads,
+                     "schedule": config.omp_schedule, "output_threads": config.output_threads,
+                     "output_schedule": config.output_schedule,
+                     "output_chunk": config.output_chunk, **summary})
+        print(f"{name} run {i + 1}: {summary['tokens_per_second']:.2f} tokens/s", flush=True)
+        with (output_root / "summary.csv").open("w", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+    for name, values in rates.items():
+        print(f"{name}: mean={statistics.mean(values):.2f}, "
+              f"median={statistics.median(values):.2f} tokens/s", flush=True)
 
 if __name__ == "__main__":
     main()

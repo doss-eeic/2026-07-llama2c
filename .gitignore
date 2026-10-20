@@ -45,8 +45,7 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Local experiment results and scratch work
-/results/
+# Local scratch work; benchmark results are versioned
 /tmp/
 
 # Build executables and model fixtures are intentionally versioned.
