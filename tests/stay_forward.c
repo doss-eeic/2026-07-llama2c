@@ -3,6 +3,9 @@
 #include "../run.c"
 
 int main(int argc, char **argv) {
+    #ifdef LLAMA_PARALLEL
+    parallel_init();
+    #endif
     Transformer t = {0};
     t.config = (Config){24, 37, 2, 6, argc > 1 ? atoi(argv[1]) : 2, 31, 9};
     float *weights = calloc(65536, sizeof(float));

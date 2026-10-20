@@ -88,6 +88,9 @@ typedef struct {
 #endif
 
 #include "src/profile.h"
+#ifdef LLAMA_PARALLEL
+#include "src/parallel.h"
+#endif
 
 void malloc_run_state(RunState* s, Config* p) {
     // we calloc instead of malloc to keep valgrind happy
@@ -243,7 +246,11 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     // by far the most amount of time is spent inside this little function
     int i;
     STAY_SYNC();
+    #ifdef LLAMA_PARALLEL
+    #pragma omp parallel for private(i) schedule(runtime)
+    #else
     #pragma omp parallel for private(i)
+    #endif
     for (i = STAY_BEGIN(d); i < STAY_END(d); i++) {
         float val = 0.0f;
         for (int j = 0; j < n; j++) {
@@ -301,6 +308,13 @@ float* forward(Transformer* transformer, int token, int pos) {
         STAY_SYNC();
 
         // qkv matmuls for this position
+        #ifdef LLAMA_PARALLEL
+        if (parallel_fuse) {
+            parallel_qkv(s->q, s->k, s->v, s->xb, w->wq + l*dim*dim,
+                         w->wk + l*dim*kv_dim, w->wv + l*dim*kv_dim, dim, kv_dim);
+            PROFILE_END("qkv", l, q_start);
+        } else {
+        #endif
         matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
         PROFILE_END("q_proj", l, q_start);
         PROFILE_START(k_start);
@@ -310,6 +324,9 @@ float* forward(Transformer* transformer, int token, int pos) {
         matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
 
         PROFILE_END("v_proj", l, v_start);
+        #ifdef LLAMA_PARALLEL
+        }
+        #endif
         PROFILE_START(rope_start);
         // RoPE relative positional encoding: complex-valued rotate q and k in each head
         STAY_SERIAL for (int i = 0; i < dim; i+=2) {
@@ -333,7 +350,12 @@ float* forward(Transformer* transformer, int token, int pos) {
         // multihead attention. iterate over all heads
         int h;
         STAY_SYNC();
+        #ifdef LLAMA_PARALLEL
+        int attention_threads = parallel_attention_threads ? parallel_attention_threads : omp_get_max_threads();
+        #pragma omp parallel for private(h) num_threads(attention_threads)
+        #else
         #pragma omp parallel for private(h)
+        #endif
         for (h = STAY_BEGIN(p->n_heads); h < STAY_END(p->n_heads); h++) {
             // get the query vector for this head
             float* q = s->q + h * head_size;
@@ -393,6 +415,13 @@ float* forward(Transformer* transformer, int token, int pos) {
         PROFILE_START(ffn_up_start);
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
+        #ifdef LLAMA_PARALLEL
+        if (parallel_fuse) {
+            parallel_ffn(s->hb, s->xb, w->w1 + l*dim*hidden_dim,
+                         w->w3 + l*dim*hidden_dim, dim, hidden_dim);
+            PROFILE_END("ffn_up_gate_swiglu", l, ffn_up_start);
+        } else {
+        #endif
         matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
         PROFILE_END("ffn_up", l, ffn_up_start);
         PROFILE_START(ffn_gate_start);
@@ -411,6 +440,9 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         PROFILE_END("swiglu", l, swiglu_start);
+        #ifdef LLAMA_PARALLEL
+        }
+        #endif
         PROFILE_START(ffn_down_start);
         // final matmul to get the output of the ffn
         matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);
@@ -431,7 +463,11 @@ float* forward(Transformer* transformer, int token, int pos) {
     // classifier into logits (the stay coordinator dispatches output separately)
 #ifndef LLAMA_STAY
     PROFILE_START(output_start);
+    #ifdef LLAMA_PARALLEL
+    parallel_output(s->logits, x, w->wcls, p->dim, p->vocab_size);
+    #else
     matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+    #endif
     PROFILE_END("output", -1, output_start);
     PROFILE_END("forward_total", -1, forward_start);
 #endif
@@ -1012,6 +1048,10 @@ void error_usage() {
 }
 
 int main(int argc, char *argv[]) {
+
+    #ifdef LLAMA_PARALLEL
+    parallel_init();
+    #endif
 
     // default parameters
     char *checkpoint_path = NULL;  // e.g. out/model.bin

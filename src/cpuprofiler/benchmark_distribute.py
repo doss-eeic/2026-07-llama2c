@@ -29,6 +29,8 @@ def project_path(path: Path) -> Path:
 def build_command(config: BenchmarkConfig, output: Path, binary: Path) -> list[str]:
     source = ROOT / "run.c"
     flags = ["-DLLAMA_STAY", "-pthread"]
+    if config.backend == "parallel":
+        flags = ["-DLLAMA_PARALLEL", "-fopenmp"]
     if config.backend == "upstream":
         # Compile the exact upstream file, not our run.c with stay disabled.
         contents = (ROOT / "run_detail.c").read_bytes() if config.profile else subprocess.check_output(
@@ -51,13 +53,20 @@ def build_command(config: BenchmarkConfig, output: Path, binary: Path) -> list[s
 def execution_environment(config: BenchmarkConfig) -> dict[str, str]:
     # Use the runtime defaults for waiting; don't inherit another experiment's overrides.
     env = {key: value for key, value in os.environ.items()
-           if not key.startswith(("OMP_", "GOMP_", "STAY_"))}
-    if config.backend == "upstream":
+           if not key.startswith(("OMP_", "GOMP_", "STAY_", "PARALLEL_", "OUTPUT_"))}
+    if config.backend in ("upstream", "parallel"):
         env.update({
             "OMP_NUM_THREADS": str(config.threads), "OMP_DYNAMIC": "FALSE",
             "OMP_PROC_BIND": "close",
             "OMP_PLACES": ",".join(f"{{{cpu}}}" for cpu in config.cpus),
         })
+        if config.backend == "parallel":
+            env.update({"OMP_SCHEDULE": config.omp_schedule,
+                        "OUTPUT_THREADS": str(config.output_threads or config.threads),
+                        "OUTPUT_CHUNK": str(config.output_chunk),
+                        "PARALLEL_FUSE": "1" if config.fuse else "0",
+                        "PARALLEL_OUTPUT_BLOCK": str(config.output_block),
+                        "PARALLEL_ATTENTION_THREADS": str(config.attention_threads)})
     else:
         env.update({
             "STAY_CPUS": ",".join(map(str, config.cpus)),
@@ -70,8 +79,8 @@ def execution_environment(config: BenchmarkConfig) -> dict[str, str]:
 def run(config: BenchmarkConfig) -> dict[str, float]:
     """1回測定し、設定・標準出力・標準エラー・集計をoutputへ保存する。"""
     available = os.sched_getaffinity(0)
-    if config.backend not in ("stay", "upstream"):
-        raise ValueError("backend must be stay or upstream")
+    if config.backend not in ("stay", "upstream", "parallel"):
+        raise ValueError("backend must be stay, upstream or parallel")
     if not config.cpus or len(set(config.cpus)) != len(config.cpus):
         raise ValueError("cpus must contain distinct CPU IDs")
     if not set(config.cpus).issubset(available):
@@ -84,6 +93,12 @@ def run(config: BenchmarkConfig) -> dict[str, float]:
         raise ValueError("steps must be at least 2 and timeout must be positive")
     if config.skip_tokens < 0 or config.skip_tokens >= config.steps:
         raise ValueError("skip_tokens must be between 0 and steps - 1")
+    if config.output_threads is not None and not 1 <= config.output_threads <= len(config.cpus):
+        raise ValueError("output_threads must be between 1 and the number of CPUs")
+    if config.output_chunk < 1 or not 0 <= config.attention_threads <= len(config.cpus):
+        raise ValueError("output_chunk must be positive and attention_threads must fit cpus")
+    if config.output_block not in (1, 4):
+        raise ValueError("output_block must be 1 or 4")
 
     binary = project_path(config.binary)
     model = project_path(config.model)
@@ -160,14 +175,20 @@ def save_profile_aggregates(output_root, rows):
     aggregates = []
     for name in dict.fromkeys(row["config"] for row in rows):
         values = [row for row in rows if row["config"] == name]
-        means = {key: statistics.mean(row[key] for row in values if key in row) for key in metrics}
-        means["qkv_ms_per_token"] = sum(means[key + "_ms_per_token"] for key in ("q_proj", "k_proj", "v_proj"))
-        means["ffn_matmul_ms_per_token"] = sum(means[key + "_ms_per_token"] for key in ("ffn_up", "ffn_gate", "ffn_down"))
+        means = {key: statistics.mean(row[key] for row in values if key in row)
+                 for key in metrics if any(key in row for row in values)}
+        if "qkv_ms_per_token" not in means:
+            means["qkv_ms_per_token"] = sum(means[key + "_ms_per_token"] for key in ("q_proj", "k_proj", "v_proj"))
+        if "ffn_up_gate_swiglu_ms_per_token" in means:
+            means["ffn_matmul_swiglu_ms_per_token"] = means["ffn_up_gate_swiglu_ms_per_token"] + means["ffn_down_ms_per_token"]
+        else:
+            means["ffn_matmul_ms_per_token"] = sum(means[key + "_ms_per_token"] for key in ("ffn_up", "ffn_gate", "ffn_down"))
+            means["ffn_matmul_swiglu_ms_per_token"] = sum(means[key + "_ms_per_token"] for key in ("ffn_up", "ffn_gate", "ffn_down", "swiglu"))
         means["outside_layers_output_ms_per_token"] = (
             means["forward_ms_per_token"] - means["layer_total_ms_per_token"] - means["output_ms_per_token"])
         aggregates.append({"config": name, "runs": len(values), **means})
     with (output_root / "aggregate.csv").open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=list(aggregates[0]), lineterminator="\n")
+        writer = csv.DictWriter(file, fieldnames=list(dict.fromkeys(k for row in aggregates for k in row)), lineterminator="\n")
         writer.writeheader()
         writer.writerows(aggregates)
     layers = {}

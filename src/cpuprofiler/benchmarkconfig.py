@@ -23,6 +23,12 @@ class BenchmarkConfig:
     p_weight: int = 2  # outputで層内参加CPUに割り当てる重み（残りは1）
     timeout: float = 300
     build: bool = True  # 実行前に現在のrun.cをコンパイルする
-    backend: str = "stay"  # stay / upstream（本家の未改造run.c + OpenMP）
+    backend: str = "stay"  # stay / upstream（未改造）/ parallel（統合OpenMP）
     profile: bool = False  # Trueなら層・演算別計測を有効にする
     skip_tokens: int = 1
+    omp_schedule: str = "dynamic,16"  # parallel backend only
+    output_threads: int | None = None
+    output_chunk: int = 32
+    fuse: bool = True
+    attention_threads: int = 0  # 0なら層内のOpenMPチーム人数を維持する
+    output_block: int = 1  # parallel: 1行または4行ずつ計算する
