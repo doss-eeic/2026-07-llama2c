@@ -29,7 +29,7 @@ forwardの同時呼び出しには対応しない。
 PYTHONPATH=src python3 -m cpuprofiler.benchmark_distribute
 ```
 
-`Upstream_P4_HT`、`P4_fixed`、`P4E4_fixed`、`Switch_equal`、`Switch_weight2`を
+`Upstream_P4_HT`、`Upstream_P4E4`、`P4_fixed`、`P4E4_fixed`、`Switch_equal`、`Switch_weight2`を
 順序をランダムにして各10回測定する。
 CPU番号は`main()`の`cpus`で変更する。結果は`results/stay_日時/`へ保存する。
 `Upstream_P4_HT`は本家コミット`350e04fe35433e6d2941dce5a1f53308f87058eb`の
@@ -37,6 +37,7 @@ CPU番号は`main()`の`cpus`で変更する。結果は`results/stay_日時/`�
 `build/upstream-run`へコンパイルする。本家ソースとrevision・SHA256は、そのバイナリを
 ビルドした試行フォルダの`run.c`・`source.json`へ保存する。git履歴が必要。
 P4_HTはこの測定機のCPU 0,1,2,3（2物理Pコア・SMT込み）をOpenMPの4スレッドで使う。
+`Upstream_P4E4`は同じ未改造バイナリをCPU 0,1,2,3,4,5,8,9の8スレッドで実行する。
 CPU番号を変更した場合は実機のSMT対応を確認する。
 stayと本家でモデル・入力・生成設定を揃え、ランタイムの待機設定は既定値を使う。
 以前の実験の`OMP_*`・`GOMP_*`・`STAY_*`環境変数は引き継がない。

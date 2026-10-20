@@ -55,11 +55,12 @@ class StayBenchmarkTest(unittest.TestCase):
             with patch.object(benchmark, "ROOT", Path(directory)), patch.object(benchmark, "run", side_effect=run):
                 with contextlib.redirect_stdout(io.StringIO()):
                     benchmark.main()
-        self.assertEqual(len(calls), 50)
-        self.assertEqual(sum(c.backend == "upstream" for c in calls), 10)
+        self.assertEqual(len(calls), 60)
+        self.assertEqual(sum(c.backend == "upstream" for c in calls), 20)
         self.assertEqual(sum(c.build for c in calls), 2)
         upstream = [c for c in calls if c.backend == "upstream"]
-        self.assertTrue(all(c.threads == 4 and c.cpus == (0, 1, 2, 3) for c in upstream))
+        for threads, cpus in ((4, (0, 1, 2, 3)), (8, (0, 1, 2, 3, 4, 5, 8, 9))):
+            self.assertEqual(sum(c.threads == threads and c.cpus == cpus for c in upstream), 10)
         self.assertEqual(len({c.binary for c in calls}), 2)
 
 
