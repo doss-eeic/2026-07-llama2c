@@ -1,6 +1,7 @@
 """Meaningful policy-selection and persistent-worker numerical regression checks."""
 from copy import deepcopy
 from contextlib import redirect_stdout
+from unittest.mock import patch
 import io
 import struct
 from types import SimpleNamespace
@@ -151,6 +152,30 @@ class WorkerTests(unittest.TestCase):
                 names = {stage["stage"] for stage in stages}
                 self.assertIn("forward_total", names)
                 self.assertEqual("output" in names, not timing_only)
+
+    def test_generation_dispatches_work_to_policy_workers(self):
+        from cpuprofiler.benchmark_stay import run
+        from cpuprofiler.benchmarkconfig import StayBenchmarkConfig
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            policy = root / "policy.txt"
+            cpus = ",".join(map(str, self.cpus))
+            policy.write_text(f"-2 default {self.cpus[0]}\n-1 output {cpus}\n")
+            with patch.dict(os.environ, {"LLAMA_STAY_DIAGNOSTICS": "1"}):
+                run(StayBenchmarkConfig(policy=policy, output=root / "run", binary=self.cli,
+                    model=self.model, tokenizer=self.tokenizer, steps=4, prompt="", timeout=10))
+            log = (root / "run/stderr.log").read_text()
+            self.assertIn("stay dispatch stage=q_proj layer=0 participants=1", log)
+            self.assertIn(f"stay dispatch stage=output layer=-1 participants={len(self.cpus)}", log)
+            for cpu in self.cpus:
+                self.assertIn(f"cpu={cpu} execution_cpu={cpu}", log)
+            work = [line for line in log.splitlines() if line.startswith("stay work ")]
+            self.assertEqual(len(work), len(self.cpus))
+            for line in work:
+                values = dict(item.split("=") for item in line.split()[2:])
+                self.assertGreater(int(values["jobs"]), 0)
+                self.assertGreater(int(values["rows"]), 0)
 
     def test_disjoint_workers_and_layer_overrides_preserve_logits(self):
         a, b = self.cpus[0], self.cpus[-1]

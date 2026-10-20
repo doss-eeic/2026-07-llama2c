@@ -1,0 +1,9 @@
+stay worker=0 allowed_cpu=0 actual_cpu=0
+stay worker=1 allowed_cpu=1 actual_cpu=1
+stay worker=2 allowed_cpu=2 actual_cpu=2
+stay worker=3 allowed_cpu=3 actual_cpu=3
+stay worker=4 allowed_cpu=4 actual_cpu=4
+stay worker=5 allowed_cpu=5 actual_cpu=5
+stay worker=6 allowed_cpu=8 actual_cpu=8
+stay worker=7 allowed_cpu=9 actual_cpu=9
+achieved tok/s: 474.248927

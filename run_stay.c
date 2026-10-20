@@ -30,10 +30,14 @@ typedef struct {
     int cpu, ready, begin, end, actual_cpu;
     RowFunction function;
     void *context;
+    unsigned long long jobs, rows;
+    int execution_cpu;
 } StayWorker;
 static StayRule *stay_rules;
 static int stay_rule_count, stay_worker_count, stay_pending, stay_stopping;
 static int stay_started, stay_pin_failed;
+static int stay_diagnostics;
+static int stay_reported[10];
 static StayWorker stay_workers[STAY_MAX_CPUS];
 static pthread_mutex_t stay_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t stay_done = PTHREAD_COND_INITIALIZER;
@@ -73,6 +77,14 @@ static void *stay_worker(void *argument) {
         if (stay_stopping) break;
         worker->ready = 0;
         stay_check(pthread_mutex_unlock(&stay_mutex));
+        if (stay_diagnostics) {
+#ifdef __linux__
+            worker->execution_cpu = sched_getcpu();
+            if (worker->execution_cpu != worker->cpu) stay_fail("worker execution CPU mismatch");
+#endif
+            worker->jobs++;
+            worker->rows += worker->end - worker->begin;
+        }
         for (int i = worker->begin; i < worker->end; i++)
             worker->function(worker->context, i);
         stay_check(pthread_mutex_lock(&stay_mutex));
@@ -108,6 +120,7 @@ static StayRule *stay_rule(int stage, int layer) {
     return selected;
 }
 static void stay_init(const char *path, int layers) {
+    stay_diagnostics = getenv("LLAMA_STAY_DIAGNOSTICS") != NULL;
     if (!path) stay_fail("specify -c policy.txt or LLAMA_STAY_POLICY");
 #if !defined(__linux__) && !defined(STAY_TEST_UNPINNED)
     stay_fail("exact CPU pinning requires Linux");
@@ -185,7 +198,10 @@ static void stay_init(const char *path, int layers) {
 }
 static void stay_dispatch(const char *stage, int layer, int rows,
                           RowFunction function, void *context) {
-    StayRule *rule = stay_rule(stay_stage_id(stage), layer);
+    int stage_id = stay_stage_id(stage);
+    StayRule *rule = stay_rule(stage_id, layer);
+    int report = stay_diagnostics && !stay_reported[stage_id];
+    stay_reported[stage_id] = 1;
     stay_check(pthread_mutex_lock(&stay_mutex));
     // Only participants are woken; all other CPU-pinned threads stay asleep.
     stay_pending = rule->count;
@@ -199,6 +215,14 @@ static void stay_dispatch(const char *stage, int layer, int rows,
         stay_check(pthread_cond_signal(&worker->wake));
     }
     while (stay_pending) stay_check(pthread_cond_wait(&stay_done, &stay_mutex));
+    if (report) {
+        for (int rank = 0; rank < rule->count; rank++) {
+            StayWorker *worker = stay_find_worker(rule->cpus[rank]);
+            fprintf(stderr, "stay dispatch stage=%s layer=%d participants=%d cpu=%d execution_cpu=%d begin=%d end=%d\n",
+                    stage, layer, rule->count, worker->cpu, worker->execution_cpu,
+                    worker->begin, worker->end);
+        }
+    }
     stay_check(pthread_mutex_unlock(&stay_mutex));
 }
 static void stay_shutdown(void) {
@@ -208,6 +232,10 @@ static void stay_shutdown(void) {
     stay_check(pthread_mutex_unlock(&stay_mutex));
     for (int i = 0; i < stay_worker_count; i++) {
         stay_check(pthread_join(stay_workers[i].thread, NULL));
+        if (stay_diagnostics)
+            fprintf(stderr, "stay work worker=%d cpu=%d execution_cpu=%d jobs=%llu rows=%llu\n",
+                    i, stay_workers[i].cpu, stay_workers[i].execution_cpu,
+                    stay_workers[i].jobs, stay_workers[i].rows);
         stay_check(pthread_cond_destroy(&stay_workers[i].wake));
     }
     free(stay_rules);

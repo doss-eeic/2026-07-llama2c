@@ -99,3 +99,13 @@ staybuild: run_stay.c run_detail.c
 stayprofile: run_stay.c run_detail.c
 	mkdir -p build
 	$(CC) $(STAY_CFLAGS) -DLLAMA_PROFILE run_stay.c -lm -o build/stay-run-detail
+
+# Fixed layer team with output-only CPU switching.
+.PHONY: stay2build stay2profile
+stay2build: run_stay2.c run_detail.c
+	mkdir -p build
+	$(CC) $(STAY_CFLAGS) run_stay2.c -lm -o build/stay2-run
+
+stay2profile: run_stay2.c run_detail.c
+	mkdir -p build
+	$(CC) $(STAY_CFLAGS) -DLLAMA_PROFILE run_stay2.c -lm -o build/stay2-run-detail

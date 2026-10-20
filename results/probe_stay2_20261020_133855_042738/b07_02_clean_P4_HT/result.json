@@ -1,0 +1,11 @@
+{
+  "config": "P4_HT",
+  "mode": "clean",
+  "wall_seconds": 0.4657824759997311,
+  "forward_calls": 222,
+  "measured_tokens": 221,
+  "forward_ms_per_token": 1.7715349547511312,
+  "forward_total": 1.7715349547511312,
+  "tokens_sha256": "5ecf9b7230e5a172ec00f7a053cb86f986a2335fa1ec2aee4cdfdb75fd8359e0",
+  "sensor_samples": 0
+}

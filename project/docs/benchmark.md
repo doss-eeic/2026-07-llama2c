@@ -132,10 +132,25 @@ OpenMP環境変数・threads・tasksetの指定は不要。
 PYTHONPATH=src python3 -m cpuprofiler.benchmark_stay
 ```
 
-P2、P4_HT、P4にCPU 4,5 / 6,7 / 8,9 / 10,11を加えた構成、
-P4_4567、P4_4589、P4_891011を固定構成として各1回実行する。
-さらに、defaultをP4_HT、outputだけをP4X4（P4_4589）またはP4_89にした
-2構成を実行する。CPU番号は既存のLinux測定機に合わせた例なので、必要に応じて
-`main()`の構成を変更する。
+P1、P2、P4_HT、E4（4〜7）、E4_alt（8〜11）の5構成を実行する。
+CPU番号は既存のLinux測定機用。`LLAMA_STAY_DIAGNOSTICS=1`を付けると、
+各stageの初回dispatchの参加人数・実行CPU・行範囲と、終了時のworker別job数・行数を
+`stderr.log`に保存する。診断ログは計測に影響するため性能測定とは分けて実行する。
+STAYはpthreadプールを使い、OpenMPのスレッド数指定は不要。
+ソース変更後は必ず`make stayprofile staybuild`で再ビルドする。
+古いバイナリではworkerが起動していても生成処理が直列のreference_forwardを
+呼ぶことがあったため、起動ログだけでは演算への参加を確認できない。
 `results/stay_<日時>/`に各試行のログ・ポリシーと`summary.csv`を保存する。
 自動探索や反復・統計評価は行わない。importだけでは実行しない。
+
+### output切替専用のstay2を測る
+
+```bash
+make stay2profile
+PYTHONPATH=src python3 -m cpuprofiler.benchmark_stay --stay2
+```
+
+`build/stay2-run-detail`でP4_HT固定、P4X4固定、P4_HTからoutputだけP4X4へ切り替える３構成を比較する。
+CPU番号は`benchmark_stay.main_stay2()`の`p4_ht`と`p4x4`で指定する。
+結果は`results/stay2_output_日時/`に保存し、`summary.csv`と構成別のポリシー・生ログを残す。
+外部ポリシーで１回だけ測る場合は、同じ`StayBenchmarkConfig`を`benchmark_stay.run2(config)`へ渡す。

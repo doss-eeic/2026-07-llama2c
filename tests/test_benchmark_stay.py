@@ -12,12 +12,31 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from cpuprofiler.benchmark_stay import main, run
+from cpuprofiler.benchmark_stay import main, main_stay2, run, run2
 from cpuprofiler.benchmarkconfig import StayBenchmarkConfig
 from test_benchmark_detail import example_log
 
 
 class StayBenchmarkTests(unittest.TestCase):
+    def test_stay2_binary_and_output_only_policies(self):
+        seen = {}
+
+        def benchmark(config):
+            self.assertEqual(config.binary, root / "build/stay2-run-detail")
+            seen[config.output.name] = config.policy.read_text()
+            return {"forward_ms_per_token": 4}, [{"stage": "output", "ms_per_token": 1}]
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch("cpuprofiler.benchmark_stay.ROOT", root), patch(
+                    "cpuprofiler.benchmark_stay.run", side_effect=benchmark), redirect_stdout(io.StringIO()):
+                main_stay2()
+            self.assertEqual(set(seen), {"P4_HT", "P4X4", "P4_HT_output_P4X4"})
+            self.assertEqual(seen["P4_HT_output_P4X4"],
+                             "-2 default 0,1,2,3\n-1 output 0,1,2,3,4,5,8,9\n")
+            with next(root.rglob("summary.csv")).open() as file:
+                self.assertEqual(len(list(csv.DictReader(file))), 3)
+
     def test_external_policy_logs_and_timing_mode(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -62,7 +81,7 @@ class StayBenchmarkTests(unittest.TestCase):
                 with self.assertRaises(subprocess.CalledProcessError):
                     run(StayBenchmarkConfig(policy=policy, output=root / "trial"))
 
-    def test_main_compares_fixed_and_output_switch_policies(self):
+    def test_main_compares_diagnostic_policies(self):
         seen = {}
 
         def benchmark(config):
@@ -76,11 +95,10 @@ class StayBenchmarkTests(unittest.TestCase):
             main()
             with next(Path(directory).rglob("summary.csv")).open() as file:
                 rows = list(csv.DictReader(file))
-            self.assertEqual(len(rows), 11)
-            self.assertEqual(seen["P4_89"], "-2 default 0,1,2,3,8,9\n-1 output 0,1,2,3,8,9\n")
-            self.assertEqual(seen["P4_HT_output_P4X4"],
-                             "-2 default 0,1,2,3\n-1 output 0,1,2,3,4,5,8,9\n")
-            self.assertEqual(rows[-1]["output_cpus"], "0,1,2,3,8,9")
+            self.assertEqual(len(rows), 5)
+            self.assertEqual(seen["P1"], "-2 default 0\n-1 output 0\n")
+            self.assertEqual(seen["P4_HT"], "-2 default 0,1,2,3\n-1 output 0,1,2,3\n")
+            self.assertEqual(rows[-1]["output_cpus"], "8,9,10,11")
             self.assertEqual(rows[-1]["output"], "1")
 
 

@@ -1,0 +1,3 @@
+stay worker=0 allowed_cpu=0 actual_cpu=0
+stay worker=1 allowed_cpu=2 actual_cpu=2
+achieved tok/s: 365.894040

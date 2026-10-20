@@ -1,0 +1,12 @@
+stay worker=0 allowed_cpu=0 actual_cpu=0
+stay dispatch stage=q_proj layer=0 participants=1 cpu=0 execution_cpu=0 begin=0 end=288
+stay dispatch stage=k_proj layer=0 participants=1 cpu=0 execution_cpu=0 begin=0 end=288
+stay dispatch stage=v_proj layer=0 participants=1 cpu=0 execution_cpu=0 begin=0 end=288
+stay dispatch stage=attention layer=0 participants=1 cpu=0 execution_cpu=0 begin=0 end=6
+stay dispatch stage=attn_out layer=0 participants=1 cpu=0 execution_cpu=0 begin=0 end=288
+stay dispatch stage=ffn_up layer=0 participants=1 cpu=0 execution_cpu=0 begin=0 end=768
+stay dispatch stage=ffn_gate layer=0 participants=1 cpu=0 execution_cpu=0 begin=0 end=768
+stay dispatch stage=ffn_down layer=0 participants=1 cpu=0 execution_cpu=0 begin=0 end=288
+stay dispatch stage=output layer=-1 participants=1 cpu=0 execution_cpu=0 begin=0 end=32000
+achieved tok/s: 160.493827
+stay work worker=0 cpu=0 execution_cpu=0 jobs=10878 rows=11076024
