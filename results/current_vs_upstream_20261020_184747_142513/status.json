@@ -1,0 +1,4 @@
+{
+  "primary": true,
+  "condition": "battery throughout all measured trials; AC online=0"
+}

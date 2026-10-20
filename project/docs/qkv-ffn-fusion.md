@@ -31,3 +31,7 @@ CC=gcc TEST_OPENMP=1 python3 -m unittest discover -s tests -p 'test_fused.py' -v
 MHA/GQA、端数の出る行数、複数コンテキスト、OpenMPでは1/4/14人・static/dynamicを検証。
 O2はビット一致、Ofastは絶対誤差1e-6＋相対誤差1e-5以内で判定する。
 OpenMP版のテストには`-fopenmp`対応コンパイラが必要。
+
+## 未改造版との測定
+
+[2026-10-20の比較結果・設定と注意点](qkv-ffn-benchmark.md)。

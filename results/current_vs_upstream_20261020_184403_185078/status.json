@@ -1,0 +1,4 @@
+{
+  "primary": false,
+  "reason": "AC transitioned from 1 to 0 during block 1; suite mixes AC/battery conditions. Superseded by a stable-power paired rerun."
+}

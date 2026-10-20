@@ -1,0 +1,308 @@
+{
+  "versions": {
+    "current": {
+      "revision": "e02948e2450b37ff5290c35d7e0093fac967d3e8",
+      "source_sha256": "0b01d349451ff3e7e56e5273a8d599ce845e006165954fd5c7f4709fb3191b1a",
+      "binary_sha256": "6104deacb323d0d93a4a4456d7c0d4ff9283f976128d7b3ec527931518910d89",
+      "build_command": [
+        "gcc",
+        "-Ofast",
+        "-march=native",
+        "-fopenmp",
+        "/home/denjo/2026-07-llama2c/results/current_vs_upstream_20261020_184403_185078/source/current/run.c",
+        "-lm",
+        "-o",
+        "/home/denjo/2026-07-llama2c/build/compare-current"
+      ],
+      "fused_header_sha256": "0bfe0ec30dfbd4efc149c8409f28eaae6a3e0c0ec6bc5a038deafb286454546c"
+    },
+    "prefusion": {
+      "revision": "666aa86490bbb61f1d0bab175e0c7ba6e08c45c4",
+      "source_sha256": "67d41bb9a9ab00a5cfb51df20699fec99c3517c5e3bace6eb36e3cdfdcd11ec8",
+      "binary_sha256": "52bba894e32b3e6f0aee2146cc28725f15c62380fb485315d9810cea5d615bad",
+      "build_command": [
+        "gcc",
+        "-Ofast",
+        "-march=native",
+        "-fopenmp",
+        "/home/denjo/2026-07-llama2c/results/current_vs_upstream_20261020_184403_185078/source/prefusion/run.c",
+        "-lm",
+        "-o",
+        "/home/denjo/2026-07-llama2c/build/compare-prefusion"
+      ]
+    },
+    "upstream": {
+      "revision": "350e04fe35433e6d2941dce5a1f53308f87058eb",
+      "source_sha256": "9c4f2d5c6ae01b71726d1cc37530d71e60bff0ec7cc012565f16a43c1ca658bd",
+      "binary_sha256": "e7c3a08e010503251a5b022838c3eefeee3a95a4d364ec53f2bea41fb8fed577",
+      "build_command": [
+        "gcc",
+        "-Ofast",
+        "-march=native",
+        "-fopenmp",
+        "/home/denjo/2026-07-llama2c/results/current_vs_upstream_20261020_184403_185078/source/upstream/run.c",
+        "-lm",
+        "-o",
+        "/home/denjo/2026-07-llama2c/build/compare-upstream"
+      ]
+    }
+  },
+  "cases": {
+    "P4_static": {
+      "cpus": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "threads": 4,
+      "normal_schedule": "static",
+      "output": [
+        4,
+        "static",
+        0
+      ]
+    },
+    "P4E4_static": {
+      "cpus": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "threads": 8,
+      "normal_schedule": "static",
+      "output": [
+        8,
+        "static",
+        0
+      ]
+    },
+    "P2E8_static": {
+      "cpus": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "threads": 10,
+      "normal_schedule": "static",
+      "output": [
+        10,
+        "static",
+        0
+      ]
+    },
+    "All14_static": {
+      "cpus": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9,
+        6,
+        7,
+        10,
+        11,
+        12,
+        13
+      ],
+      "threads": 14,
+      "normal_schedule": "static",
+      "output": [
+        14,
+        "static",
+        0
+      ]
+    },
+    "P4E4_dynamic": {
+      "cpus": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "threads": 8,
+      "normal_schedule": "dynamic,16",
+      "output": [
+        8,
+        "dynamic",
+        128
+      ]
+    },
+    "P2E8_dynamic": {
+      "cpus": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "threads": 10,
+      "normal_schedule": "dynamic,16",
+      "output": [
+        10,
+        "dynamic",
+        128
+      ]
+    },
+    "All14_dynamic": {
+      "cpus": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9,
+        6,
+        7,
+        10,
+        11,
+        12,
+        13
+      ],
+      "threads": 14,
+      "normal_schedule": "dynamic,16",
+      "output": [
+        14,
+        "dynamic",
+        128
+      ]
+    },
+    "P4E4_defaults": {
+      "cpus": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "threads": 8,
+      "normal_schedule": null,
+      "output": "source defaults"
+    },
+    "All14_defaults": {
+      "cpus": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9,
+        6,
+        7,
+        10,
+        11,
+        12,
+        13
+      ],
+      "threads": 14,
+      "normal_schedule": null,
+      "output": "source defaults"
+    },
+    "P4_to_output8": {
+      "cpus": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "threads": 4,
+      "normal_schedule": "static",
+      "output": [
+        8,
+        "dynamic",
+        128
+      ]
+    }
+  },
+  "runtime_probes": {
+    "P4_static": {
+      "max_threads": 4,
+      "schedule_kind": 2147483649,
+      "chunk": 0
+    },
+    "P4E4_static": {
+      "max_threads": 8,
+      "schedule_kind": 2147483649,
+      "chunk": 0
+    },
+    "P2E8_static": {
+      "max_threads": 10,
+      "schedule_kind": 2147483649,
+      "chunk": 0
+    },
+    "All14_static": {
+      "max_threads": 14,
+      "schedule_kind": 2147483649,
+      "chunk": 0
+    },
+    "P4E4_dynamic": {
+      "max_threads": 8,
+      "schedule_kind": 2,
+      "chunk": 16
+    },
+    "P2E8_dynamic": {
+      "max_threads": 10,
+      "schedule_kind": 2,
+      "chunk": 16
+    },
+    "All14_dynamic": {
+      "max_threads": 14,
+      "schedule_kind": 2,
+      "chunk": 16
+    },
+    "P4E4_defaults": {
+      "max_threads": 8,
+      "schedule_kind": 2,
+      "chunk": 1
+    },
+    "All14_defaults": {
+      "max_threads": 14,
+      "schedule_kind": 2,
+      "chunk": 1
+    },
+    "P4_to_output8": {
+      "max_threads": 4,
+      "schedule_kind": 2147483649,
+      "chunk": 0
+    }
+  },
+  "model_sha256": "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a",
+  "tokenizer_sha256": "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ece361",
+  "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "repeat": 10
+}

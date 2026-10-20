@@ -1,0 +1,5 @@
+{
+  "criterion": "Exclude complete case/replicate triplet if any source shows an increase in any exposed core/package throttle count between before and after. Post-hoc sensitivity analysis, not a new experiment.",
+  "excluded_triplets": [],
+  "remaining_trials": 300
+}
