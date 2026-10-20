@@ -7,6 +7,9 @@
 #include <math.h>
 #include <string.h>
 #include <fcntl.h>
+#if defined _OPENMP
+#include <omp.h>
+#endif
 #if defined _WIN32
     #include "win.h"
 #else
@@ -15,6 +18,10 @@
 #endif
 
 static int output_threads = 8;
+#if defined _OPENMP
+static omp_sched_t output_schedule = omp_sched_dynamic;
+static int output_chunk = 128;
+#endif
 
 // ----------------------------------------------------------------------------
 // Transformer model
@@ -221,7 +228,7 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
     int i;
-    #pragma omp parallel for private(i)
+    #pragma omp parallel for private(i) schedule(runtime)
     for (i = 0; i < d; i++) {
         float val = 0.0f;
         for (int j = 0; j < n; j++) {
@@ -373,8 +380,30 @@ float* forward(Transformer* transformer, int token, int pos) {
     // final rmsnorm
     rmsnorm(x, x, w->rms_final_weight, dim);
 
+    #if defined _OPENMP
+    // 現在の設定を保存
+    int previous_threads = omp_get_max_threads();
+    omp_sched_t previous_schedule;
+    int previous_chunk;
+    omp_get_schedule(&previous_schedule, &previous_chunk);
+
+    // output用に切り替え
+    int change_threads = previous_threads != output_threads;
+    int change_schedule = (previous_schedule & ~omp_sched_monotonic) != output_schedule
+                          || previous_chunk != output_chunk;
+    if (change_threads) omp_set_num_threads(output_threads);
+    if (change_schedule) omp_set_schedule(output_schedule, output_chunk);
+    #endif
+
     // classifier into logits
-    matmul_output(s->logits, x, w->wcls, p->dim, p->vocab_size);
+    matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+
+    // 元の設定に戻す
+    #if defined _OPENMP
+    if (change_schedule) omp_set_schedule(previous_schedule, previous_chunk);
+    if (change_threads) omp_set_num_threads(previous_threads);
+    #endif
+
     return s->logits;
 }
 
@@ -931,6 +960,28 @@ int main(int argc, char *argv[]) {
         }
         output_threads = n;
     }
+
+    #if defined _OPENMP
+    env = getenv("OUTPUT_SCHEDULE");
+    if (env) {
+        if (strcmp(env, "static") == 0) output_schedule = omp_sched_static;
+        else if (strcmp(env, "dynamic") == 0) output_schedule = omp_sched_dynamic;
+        else {
+            fprintf(stderr, "Invalid OUTPUT_SCHEDULE (use static or dynamic)\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    env = getenv("OUTPUT_CHUNK");
+    if (env) {
+        char *end;
+        long n = strtol(env, &end, 10);
+        if (end == env || *end != '\0' || n < 0 || n > 2147483647L) {
+            fprintf(stderr, "Invalid OUTPUT_CHUNK\n");
+            exit(EXIT_FAILURE);
+        }
+        output_chunk = (int)n;
+    }
+    #endif
 
     // default parameters
     char *checkpoint_path = NULL;  // e.g. out/model.bin
