@@ -9,6 +9,9 @@
 #include <stdint.h>
 #include <float.h>
 #include <fcntl.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #if defined _WIN32
     #include "win.h"
 #else
@@ -395,7 +398,8 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
     int i;
-    #pragma omp parallel for private(i)
+    // schedule(runtime): taken from OMP_SCHEDULE (static unless set, see main)
+    #pragma omp parallel for private(i) schedule(runtime)
     for (i = 0; i < d; i++) {
         xout[i] = dot_f32(w + (size_t)i * n, x, n);
     }
@@ -496,7 +500,7 @@ static void classifier_int8(float* logits, float* x, float* wcls, int n, int d) 
     // -ffinite-math-only, under which comparisons against infinities may be optimized away
     float L = -FLT_MAX; // the largest lower bound: the true maximum is at least this
     int i;
-    #pragma omp parallel for private(i) reduction(max:L)
+    #pragma omp parallel for private(i) reduction(max:L) schedule(runtime)
     for (i = 0; i < d; i++) {
         const int8_t* q = cls.q + (size_t)i * n;
         const float* sc = cls.s + (size_t)i * ng;
@@ -614,7 +618,7 @@ float* forward(Transformer* transformer, int token, int pos) {
 
         // multihead attention. iterate over all heads
         int h;
-        #pragma omp parallel for private(h)
+        #pragma omp parallel for private(h) schedule(runtime)
         for (h = 0; h < p->n_heads; h++) {
             // get the query vector for this head
             float* q = s->q + h * head_size;
@@ -1273,6 +1277,20 @@ void error_usage() {
 }
 
 int main(int argc, char *argv[]) {
+#ifdef _OPENMP
+    // the work-sharing loops use schedule(runtime); keep the original static schedule unless
+    // OMP_SCHEDULE asks for something else (e.g. OMP_SCHEDULE=dynamic,16 for mixed P/E cores)
+    if (getenv("OMP_SCHEDULE") == NULL) { omp_set_schedule(omp_sched_static, 0); }
+    {
+        omp_sched_t kind; int chunk;
+        omp_get_schedule(&kind, &chunk);
+        const char* kn = kind == omp_sched_static ? "static" : kind == omp_sched_dynamic ? "dynamic"
+                       : kind == omp_sched_guided ? "guided" : "auto";
+        const char* wp = getenv("OMP_WAIT_POLICY");
+        fprintf(stderr, "openmp: max_threads=%d schedule=%s,%d wait_policy=%s\n",
+                omp_get_max_threads(), kn, chunk, wp ? wp : "default");
+    }
+#endif
 
     // default parameters
     char *checkpoint_path = NULL;  // e.g. out/model.bin
