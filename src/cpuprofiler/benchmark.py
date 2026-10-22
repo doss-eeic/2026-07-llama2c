@@ -80,6 +80,11 @@ class BenchmarkRunner:
         env["OMP_PROC_BIND"] = config.omp_proc_bind
         env["OMP_PLACES"] = config.omp_places or ",".join(f"{{{cpu}}}" for cpu in config.cpus)
 
+        if config.omp_wait_policy is not None:
+            env["OMP_WAIT_POLICY"] = config.omp_wait_policy.upper()
+        if config.gomp_spincount is not None:
+            env["GOMP_SPINCOUNT"] = str(config.gomp_spincount)
+
         # CPU affinity
         cpu_list = ",".join(map(str, config.cpus))
 
@@ -312,6 +317,52 @@ def main4():
     print(f"二段階argmaxの追加改善率: {gain:+.2f}%")
     print(f"未改造版からの合計改善率: {total:+.2f}%")
 
+def check_top():
+    # ベンチマークの結果を確認するための関数。上位の構成を表示する。
+    runner = BenchmarkRunner(binary_path="./build/run-fused")
+    config = BenchmarkConfig(
+        cpus=(0, 1, 2, 3, 6, 7, 9, 10, 11),
+        threads=9,
+        steps=256,
+        omp_dynamic=False,
+        omp_proc_bind='close',
+        omp_places=None,
+        omp_schedule='static',
+        optimize_weights=True,
+        two_stage_argmax=True,
+        group_size=144,
+        )
 
+    results = []
+    for repeat in range(10):
+        result = runner.run(config)
+        results.append(result.tokens_per_second)
+        # print(f"{repeat + 1:02d}: {result.tokens_per_second:.2f} tok/s", flush=True)
+
+    mean_tps = sum(results) / len(results)
+    print(config)
+    print(f"\n平均: {mean_tps:.2f} tok/s")
+
+    config=BenchmarkConfig(
+        cpus=(1, 2, 3, 5, 6, 7, 8, 10, 11),
+        threads=9,
+        omp_schedule="guided,16",
+        omp_proc_bind="close",
+        omp_places="{1},{2},{3},{5},{6},{7},{8},{10},{11}",
+        group_size=144,
+        optimize_weights=True,
+        two_stage_argmax=True,
+        omp_wait_policy="ACTIVE",
+    )
+    results = []
+    for repeat in range(10):
+        result = runner.run(config)
+        results.append(result.tokens_per_second)
+        # print(f"{repeat + 1:02d}: {result.tokens_per_second:.2f} tok/s", flush=True)
+
+    mean_tps = sum(results) / len(results)
+    print(config)
+    print(f"\n平均: {mean_tps:.2f} tok/s")
 if __name__ == "__main__":
-    main4()
+    # main4()
+    check_top()

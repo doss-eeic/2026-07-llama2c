@@ -68,6 +68,10 @@ def run(config: BenchmarkConfig) -> dict[str, float]:
         "OMP_PROC_BIND": config.omp_proc_bind,
         "OMP_PLACES": config.omp_places or ",".join(f"{{{cpu}}}" for cpu in config.cpus),
     })
+    if config.omp_wait_policy is not None:
+        env["OMP_WAIT_POLICY"] = config.omp_wait_policy.upper()
+    if config.gomp_spincount is not None:
+        env["GOMP_SPINCOUNT"] = str(config.gomp_spincount)
     command = [
         "taskset", "-c", ",".join(map(str, config.cpus)), str(binary), str(model),
         "-z", str(tokenizer), "-n", str(config.steps), "-t", str(config.temperature),
@@ -127,7 +131,9 @@ def main():
         rows.append({"config": name, "run": i + 1,
                      "cpus": ",".join(map(str, config.cpus)), "threads": config.threads,
                      "schedule": config.omp_schedule, "optimize_weights": config.optimize_weights,
-                     "two_stage_argmax": config.two_stage_argmax, "group_size": config.group_size, **summary})
+                     "two_stage_argmax": config.two_stage_argmax, "group_size": config.group_size,
+                     "omp_wait_policy": config.omp_wait_policy, "gomp_spincount": config.gomp_spincount,
+                     **summary})
         print(f"{name} run {i + 1}: {summary['tokens_per_second']:.2f} tokens/s", flush=True)
         with (output_root / "summary.csv").open("w", newline="") as file:
             writer = csv.DictWriter(file, fieldnames=list(rows[0]))

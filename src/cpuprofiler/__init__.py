@@ -21,6 +21,20 @@ def main(*args):
         best_result = tuner.search()
         print(f"Best configuration: {best_result.config}")
         print(f"Best performance: {best_result.tokens_per_second} tokens/sec")
+
+    elif sys.argv[1] == "kasikoi":
+        print("Running kasikoi search...")
+        topology = CPUTopology()
+        tuner = AutoTuner(topology, BenchmarkRunner())
+        config = BenchmarkConfig(
+            cpus=tuple(topology.cpus), threads=topology.n_logical_cpus,
+            optimize_weights=True, two_stage_argmax=True,
+        )
+        best_result = tuner.kasikoi_serch(config)
+        print(f"Best configuration: {best_result.config}")
+        print(f"Best performance: {best_result.tokens_per_second:.2f} tokens/sec")
+        print(f"Search: {tuner.last_search['seconds']:.2f} sec, "
+              f"{tuner.last_search['measurements']} measurements")
     
     else:
         print("Invalid argument.")
