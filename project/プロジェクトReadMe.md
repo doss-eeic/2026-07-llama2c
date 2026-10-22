@@ -15,6 +15,57 @@
 - 一番早いのを選ぶ。(もしくは一番早い２つを組み合わせるのを基本構成に。)
 - runをするときに自動でこの構成が動くようにする。(とりあえずはmakeファイルで専用の作るのが良いかも)
 
+
+# 準備（セットアップ）
+`build/`（実行ファイルとモデル）は git の管理から外しているので、クローンしたら自分で用意する。
+
+## 必要なもの
+- Linux（`taskset` と `sched_setaffinity` を使う）
+- OpenMP が使える gcc
+- [uv](https://docs.astral.sh/uv/)（Python 3.14 以上は uv が用意する）
+
+## 手順
+リポジトリのルートで実行する。
+```shell
+mkdir -p build
+
+# 実行ファイル（-fopenmp を忘れると 1 スレッドでしか動かない）
+gcc -Ofast -fopenmp -march=native run.c -lm -o build/omp-run
+
+# モデル（約 60MB）
+wget -P build https://huggingface.co/karpathy/tinyllamas/resolve/main/stories15M.bin
+```
+
+## 確認
+```shell
+# libgomp が表示されれば OpenMP 付きでビルドできている
+ldd build/omp-run | grep gomp
+
+# 4 スレッドで動かしてみる。stderr に "achieved tok/s" と "section ms/tok" が出れば OK
+OMP_NUM_THREADS=4 taskset -c 0-3 ./build/omp-run ./build/stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
+```
+
+> 注意：`-fopenmp` なしでビルドすると、`OMP_NUM_THREADS` も `-B` / `-C` も効かず、どの構成でも 1 スレッドで動く。
+> 探索の結果がおかしいときは、まず `ldd build/omp-run | grep gomp` で確認する。
+
+## cpuprofiler を実行する
+リポジトリのルートで実行する（`run.c` が `tokenizer.bin` を今いるフォルダから探すため）。
+```shell
+uv run cpuprofiler topology  # CPU の構成を表示
+uv run cpuprofiler beam      # 全体の CPU を beam search
+uv run cpuprofiler split     # 出力層とそれ以外の CPU を別々に beam search
+uv run cpuprofiler sample    # 決められた構成だけを試す
+```
+`beam` と `split` の結果は `src/cpuprofiler/output/` に保存される（git の管理外）。
+
+## 出力層とそれ以外で CPU を分ける（-B / -C）
+`split` は `run.c` の `-B`（出力層以外）と `-C`（出力層）を使う。手で試すときは次のようにする。
+```shell
+OMP_PROC_BIND=FALSE ./build/omp-run ./build/stories15M.bin -n 256 -t 0 -B 0-3 -C 0,2
+```
+- CPU は `0,2,4-7` のように書く。スレッド数はリストの CPU の数になる。
+- `OMP_PROC_BIND=FALSE` が必要（そうでないとエラーで終了する）。
+
 # cpu-profiler.py
 ## 仕組み
 <details>
@@ -200,7 +251,7 @@ taskset -c 4 \
 
 > taskset はプロセスのCPU affinityを設定するLinuxのコマンド。
 
-注意：今のビルドが`make runomp CC=gcc`でできているか確認。
+注意：`build/omp-run` が `-fopenmp` 付きでビルドされているか確認する（手順は「準備（セットアップ）」を参照）。`make runomp` はルートに `./run` を作るもので、`build/omp-run` は作らない。
 
 ## ベンチマークの取得
 
