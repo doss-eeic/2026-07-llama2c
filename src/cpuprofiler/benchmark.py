@@ -32,7 +32,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 if __package__:
@@ -92,6 +92,10 @@ class BenchmarkRunner:
             "-s", str(config.seed),
             "-i", config.prompt
         ]
+
+        # upstreamは-w非対応。既定のmmapはオプションを渡さず実行する。
+        if config.optimize_weights:
+            command += ["-w", "1"]
 
         result = subprocess.run(
             command,
@@ -221,5 +225,46 @@ def main2():
     gain = (means["fused"] / means["upstream"] - 1) * 100
     print(f"融合版の改善率: {gain:+.2f}%")
 
+def main3():
+    # 同じ融合版の重み最適化False/Trueを比較し、未改造版も参考に測る。
+    fused = BenchmarkRunner(binary_path="./build/run-fused")
+    config = BenchmarkConfig(
+        cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10, 11),
+        threads=10,
+        omp_schedule="dynamic,16",
+        omp_proc_bind="close",
+        omp_places="{0},{2},{4},{5},{6},{7},{8},{9},{10},{11}",
+    )
+    cases = {
+        "upstream": (BenchmarkRunner(binary_path="./build/run-upstream"), config),
+        "fused": (fused, config),
+        "fused+weights": (fused, replace(config, optimize_weights=True)),
+    }
+    print(f"threads={config.threads}, OMP_SCHEDULE={config.omp_schedule}", flush=True)
+    for runner, case_config in cases.values():
+        runner.run(case_config)
+
+    results = {name: [] for name in cases}
+    names = list(cases)
+    for repeat in range(10):
+        # 各条件が先頭・中間・最後になるよう順番を回す。
+        offset = repeat % len(names)
+        for name in names[offset:] + names[:offset]:
+            runner, case_config = cases[name]
+            result = runner.run(case_config)
+            results[name].append(result.tokens_per_second)
+            print(f"{repeat + 1:02d} {name:13s}: "
+                  f"{result.tokens_per_second:.2f} tok/s", flush=True)
+
+    means = {name: sum(values) / len(values) for name, values in results.items()}
+    print("\n平均")
+    for name, tps in means.items():
+        print(f"{name:13s}: {tps:.2f} tok/s")
+    gain = (means["fused+weights"] / means["fused"] - 1) * 100
+    total = (means["fused+weights"] / means["upstream"] - 1) * 100
+    print(f"重み最適化の追加改善率: {gain:+.2f}%")
+    print(f"未改造版からの合計改善率: {total:+.2f}%")
+
+
 if __name__ == "__main__":
-    main2()
+    main3()

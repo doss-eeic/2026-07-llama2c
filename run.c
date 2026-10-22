@@ -6,6 +6,7 @@
 #include <time.h>
 #include <math.h>
 #include <string.h>
+#include <stdint.h>
 #include <fcntl.h>
 #if defined _WIN32
     #include "win.h"
@@ -174,6 +175,27 @@ void free_transformer(Transformer* t) {
     if (t->fd != -1) { close(t->fd); }
     // free the RunState buffers
     free_run_state(&t->state);
+}
+
+// dev/sakurada (e56eeaac): copy weights to 2MiB-aligned anonymous THP memory.
+static void use_hugepages(Transformer* t) {
+#if defined __linux__
+    const size_t huge = 2 * 1024 * 1024;
+    size_t nbytes = t->file_size - sizeof(Config);
+    size_t size = nbytes + huge;
+    char* base = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (base == MAP_FAILED) { fprintf(stderr, "mmap failed!\n"); exit(EXIT_FAILURE); }
+    float* weights = (float*)(((uintptr_t)base + huge - 1) & ~(uintptr_t)(huge - 1));
+    if (madvise(base, size, MADV_HUGEPAGE) != 0) { perror("madvise"); exit(EXIT_FAILURE); }
+    memcpy(weights, (char*)t->data + sizeof(Config), nbytes);
+    int shared_weights = t->weights.wcls == t->weights.token_embedding_table;
+    memory_map_weights(&t->weights, &t->config, weights, shared_weights);
+    munmap(t->data, t->file_size);
+    t->data = (float*)base;
+    t->file_size = size;
+#else
+    fprintf(stderr, "hugepages require Linux\n"); exit(EXIT_FAILURE);
+#endif
 }
 
 // ----------------------------------------------------------------------------
@@ -891,6 +913,7 @@ void error_usage() {
     fprintf(stderr, "  -z <string> optional path to custom tokenizer\n");
     fprintf(stderr, "  -m <string> mode: generate|chat, default: generate\n");
     fprintf(stderr, "  -y <string> (optional) system prompt in chat mode\n");
+    fprintf(stderr, "  -w <int>    optimize weights: 0=off (default) 1=aligned+hugepage\n");
     exit(EXIT_FAILURE);
 }
 
@@ -906,6 +929,7 @@ int main(int argc, char *argv[]) {
     unsigned long long rng_seed = 0; // seed rng with time by default
     char *mode = "generate";    // generate|chat
     char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
+    int optimize_weights = 0; // copy weights to aligned hugepage memory when enabled
 
     // poor man's C argparse so we can override the defaults above from the command line
     if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
@@ -923,6 +947,7 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'z') { tokenizer_path = argv[i + 1]; }
         else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
         else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
+        else if (argv[i][1] == 'w') { optimize_weights = atoi(argv[i + 1]); }
         else { error_usage(); }
     }
 
@@ -931,10 +956,12 @@ int main(int argc, char *argv[]) {
     if (temperature < 0.0) temperature = 0.0;
     if (topp < 0.0 || 1.0 < topp) topp = 0.9;
     if (steps < 0) steps = 0;
+    if (optimize_weights != 0 && optimize_weights != 1) { error_usage(); }
 
     // build the Transformer via the model .bin file
     Transformer transformer;
     build_transformer(&transformer, checkpoint_path);
+    if (optimize_weights) { use_hugepages(&transformer); }
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
 
     // build the Tokenizer via the tokenizer .bin file

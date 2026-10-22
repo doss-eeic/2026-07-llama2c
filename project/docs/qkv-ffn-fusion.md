@@ -17,7 +17,7 @@
 uv run src/cpuprofiler/benchmark_distribute.py
 ```
 
-`run.c`のupstreamとの差分は融合ヘッダのinclude、QKV・FFNの呼び出し置換、
+`run.c`の演算部分のupstreamとの差分は融合ヘッダのinclude、QKV・FFNの呼び出し置換、
 通常matmulへの`schedule(runtime)`追加。`OUTPUT_*`は使用しない。
 ベンチマークの`omp_schedule`の既定値は`dynamic,16`で、出力にも同じ設定を使う。
 未改造upstreamは`OMP_SCHEDULE`を参照しないため、対upstreamの性能差には
@@ -35,3 +35,5 @@ CC=gcc TEST_OPENMP=1 python3 -m unittest discover -s tests -p 'test_fused.py' -v
 MHA/GQA、端数の出る行数、複数コンテキスト、OpenMPでは1/4/14スレッドを検証。
 O2はビット一致、Ofastは絶対誤差1e-6＋相対誤差1e-5以内で判定する。
 OpenMP版のテストには`-fopenmp`対応コンパイラが必要。
+
+重み配置の追加機能は[hugepage.md](hugepage.md)を参照。既定は従来のmmap。
