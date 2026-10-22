@@ -33,11 +33,15 @@ class FusedTest(unittest.TestCase):
                     ], check=True, capture_output=True, timeout=60)
                     binaries.append(binary)
                 for heads in (2, 6):
-                    for threads in ((1, 4, 14) if openmp else (1,)):
-                        with self.subTest(flags=flags, kv_heads=heads, threads=threads):
+                    cases = [(1, "static")]
+                    if openmp:
+                        cases = [(threads, schedule) for threads in (1, 4, 14)
+                                 for schedule in ("static", "dynamic,1", "dynamic,16")]
+                    for threads, schedule in cases:
+                        with self.subTest(flags=flags, kv_heads=heads, threads=threads, schedule=schedule):
                             env = {k: v for k, v in os.environ.items() if not k.startswith(("OMP_", "GOMP_", "OUTPUT_"))}
                             env.update(OMP_NUM_THREADS=str(threads), OMP_DYNAMIC="FALSE",
-                                       OMP_PROC_BIND="FALSE")
+                                       OMP_PROC_BIND="FALSE", OMP_SCHEDULE=schedule)
                             outputs = [subprocess.check_output([binary, str(heads)], env=env, timeout=30)
                                        for binary in binaries]
                             reference, actual = (array("f", output) for output in outputs)

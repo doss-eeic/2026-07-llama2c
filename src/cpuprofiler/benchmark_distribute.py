@@ -61,6 +61,7 @@ def run(config: BenchmarkConfig) -> dict[str, float]:
            if not k.startswith(("OMP_", "GOMP_", "OUTPUT_"))}
     env.update({
         "OMP_NUM_THREADS": str(config.threads),
+        "OMP_SCHEDULE": config.omp_schedule,
         "OMP_DYNAMIC": "TRUE" if config.omp_dynamic else "FALSE",
         "OMP_PROC_BIND": config.omp_proc_bind,
         "OMP_PLACES": config.omp_places or ",".join(f"{{{cpu}}}" for cpu in config.cpus),
@@ -119,7 +120,7 @@ def main():
         rates[name].append(summary["tokens_per_second"])
         rows.append({"config": name, "run": i + 1,
                      "cpus": ",".join(map(str, config.cpus)), "threads": config.threads,
-                     **summary})
+                     "schedule": config.omp_schedule, **summary})
         print(f"{name} run {i + 1}: {summary['tokens_per_second']:.2f} tokens/s", flush=True)
         with (output_root / "summary.csv").open("w", newline="") as file:
             writer = csv.DictWriter(file, fieldnames=list(rows[0]))

@@ -13,6 +13,7 @@ env OMP_NUM_THREADS=10 \
     OMP_DYNAMIC=FALSE \
     OMP_PROC_BIND=close \
     OMP_PLACES='{0},{2},{4},{5},{6},{7},{8},{9},{10},{11}' \
+    OMP_SCHEDULE='dynamic,16' \
     taskset -c 0,2,4,5,6,7,8,9,10,11 \
     ./build/run-fused build/stories15M.bin \
     -z tokenizer.bin -n 256 -t 0 -s 42 -i "Once upon a time"

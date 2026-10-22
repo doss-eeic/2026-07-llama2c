@@ -48,6 +48,7 @@ class BenchmarkConfig:
     omp_dynamic: bool = False
     omp_proc_bind: str = "TRUE"
     omp_places: str = "threads"
+    omp_schedule: str = "dynamic,16"
 
 
 @dataclass
@@ -82,6 +83,7 @@ class BenchmarkRunner:
                if not k.startswith(("OMP_", "GOMP_", "OUTPUT_"))}
 
         env["OMP_NUM_THREADS"] = str(config.threads)
+        env["OMP_SCHEDULE"] = config.omp_schedule
         env["OMP_DYNAMIC"] = (
             "TRUE" if config.omp_dynamic else "FALSE"
         )
@@ -129,8 +131,8 @@ class BenchmarkRunner:
         )
 
 def main():
-    runner = BenchmarkRunner()
-    print("==0,1,2,3,4,5,8,9を4threads==")
+    runner = BenchmarkRunner(binary_path="./build/run-upstream")
+    print("\n==0,1,2,3,4,5,8,9を4threads==\n")
     config = BenchmarkConfig(
         cpus=(0, 1, 2, 3, 4, 5, 8, 9),
         threads=4,
@@ -143,9 +145,34 @@ def main():
     print(result.tokens_per_second)
     print(result.ms_per_token)
 
+    print("\n==0,1を2threads==\n")
     config = BenchmarkConfig(
         cpus=(0, 1),
         threads=2,
+    )
+
+    result = runner.run(config)
+
+    print(result.tokens_per_second)
+    print(result.ms_per_token)
+
+    print("\n==0,2,4,5,6,7,8,9,10,11を10threads==\n")
+    config = BenchmarkConfig(
+        cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10, 11),
+        threads=10,
+        omp_proc_bind="close",
+        omp_places="{0},{2},{4},{5},{6},{7},{8},{9},{10},{11}",
+    )
+
+    result = runner.run(config)
+
+    print(result.tokens_per_second)
+    print(result.ms_per_token)
+
+    print("\n==0,2,4,5,6,7,8,9,10,11を10threads==\n")
+    config = BenchmarkConfig(
+        cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10, 11),
+        threads=10,
     )
 
     result = runner.run(config)
@@ -203,4 +230,4 @@ def main2():
 
 if __name__ == "__main__":
     # main2()
-    main()
+    main2()

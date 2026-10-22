@@ -3,7 +3,7 @@
  */
 static void matmul_qkv(float *q, float *k, float *v, float *x,
                        float *wq, float *wk, float *wv, int dim, int kv_dim) {
-    #pragma omp parallel for
+    #pragma omp parallel for schedule(runtime)
     for (int row = 0; row < dim + 2 * kv_dim; row++) {
         int i;
         float *out, *w;
@@ -18,7 +18,7 @@ static void matmul_qkv(float *q, float *k, float *v, float *x,
 
 static void ffn_up_gate(float *hb, float *hb2, float *x, float *up, float *gate,
                         int dim, int hidden_dim) {
-    #pragma omp parallel for
+    #pragma omp parallel for schedule(runtime)
     for (int i = 0; i < hidden_dim; i++) {
         float val = 0.0f, g = 0.0f;
         for (int j = 0; j < dim; j++) val += up[i * dim + j] * x[j];

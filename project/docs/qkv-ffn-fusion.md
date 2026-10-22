@@ -8,7 +8,7 @@
 - FFN：up/gateの2内積とSwiGLUを1行ごとに計算する。領域を2回から1回へ減らし、
   SwiGLUも並列化する。gateの値は従来どおり`hb2`にも保存する。
 - 内積の加算順序と重み形式は維持する。`-Ofast`によるコード生成の丸め差はあり得る。
-- 両方ともupstreamのmatmulと同じ、schedule指定なしの`omp parallel for`を使う。CPU探索や独自ワーカー管理は追加しない。
+- 通常matmul・QKV・FFNは全て`schedule(runtime)`を使い、全体共通の`OMP_SCHEDULE`で分配する。CPU探索や独自ワーカー管理は追加しない。
 - OpenMPなしでも直列実行できる。
 
 既存のLinux測定入口をそのまま利用できる。
@@ -17,8 +17,11 @@
 uv run src/cpuprofiler/benchmark_distribute.py
 ```
 
-`run.c`のupstreamとの差分は融合ヘッダのincludeとQKV・FFNの呼び出し置換のみ。
-`OUTPUT_*`と`OMP_SCHEDULE`は使用しない。融合の速度効果を比較する際は、
+`run.c`のupstreamとの差分は融合ヘッダのinclude、QKV・FFNの呼び出し置換、
+通常matmulへの`schedule(runtime)`追加。`OUTPUT_*`は使用しない。
+ベンチマークの`omp_schedule`の既定値は`dynamic,16`で、出力にも同じ設定を使う。
+未改造upstreamは`OMP_SCHEDULE`を参照しないため、対upstreamの性能差には
+分配方法の差も含まれる。比較する際は、
 upstreamと融合版でCPU集合・人数・ビルドオプション・モデル・入力を揃える。
 
 数値検証：

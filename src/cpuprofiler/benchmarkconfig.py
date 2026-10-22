@@ -21,5 +21,6 @@ class BenchmarkConfig:
     omp_dynamic: bool = False
     omp_proc_bind: str = "close"
     omp_places: str | None = None  # Noneならcpusの順序で作る
+    omp_schedule: str = "dynamic,16"  # 出力を含む全matmul共通
     timeout: float = 300
     build: bool = True  # 実行前に現在のrun.cをコンパイルする
