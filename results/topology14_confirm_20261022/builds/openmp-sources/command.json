@@ -1,0 +1,12 @@
+[
+  "gcc",
+  "-Ofast",
+  "-march=native",
+  "-DLLAMA_PARALLEL",
+  "-DLLAMA_EXPERIMENT",
+  "-fopenmp",
+  "/home/denjo/2026-07-llama2c/run.c",
+  "-lm",
+  "-o",
+  "/home/denjo/2026-07-llama2c/results/topology14_confirm_20261022/builds/openmp"
+]

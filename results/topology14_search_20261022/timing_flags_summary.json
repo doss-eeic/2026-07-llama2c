@@ -1,0 +1,6 @@
+{
+  "flagged_runs": 5,
+  "criterion": "run latency/cell median outside[0.5,2]",
+  "automatic_exclusion": false,
+  "caveat": "diagnostic threshold, not evidence of a specific cause"
+}

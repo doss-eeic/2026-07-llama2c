@@ -1,0 +1,17 @@
+{
+  "OMP_NUM_THREADS": "6",
+  "OMP_DYNAMIC": "FALSE",
+  "OMP_PROC_BIND": "close",
+  "OMP_PLACES": "{0},{2},{4},{5},{6},{8},{1},{9}",
+  "OMP_SCHEDULE": "static",
+  "OUTPUT_THREADS": "8",
+  "OUTPUT_CHUNK": "32",
+  "OUTPUT_DYNAMIC": "1",
+  "PARALLEL_FUSE": "1",
+  "PARALLEL_FUSE_QKV": "1",
+  "PARALLEL_FUSE_FFN": "1",
+  "PARALLEL_OUTPUT_BLOCK": "1",
+  "PARALLEL_ATTENTION_THREADS": "0",
+  "PARALLEL_DYNAMIC": "0",
+  "PARALLEL_CHUNK": "16"
+}

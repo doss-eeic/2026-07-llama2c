@@ -1,0 +1,14 @@
+{
+  "revision": "1597e2b1ccf203d88dd4d21721a271e27095b2aa",
+  "command": [
+    "gcc",
+    "-Ofast",
+    "-march=native",
+    "-fopenmp",
+    "/home/denjo/2026-07-llama2c/results/topology14_oracle_20261022/builds/qkvffn_branch/run.c",
+    "-lm",
+    "-o",
+    "/home/denjo/2026-07-llama2c/results/topology14_oracle_20261022/builds/qkvffn_branch/run"
+  ],
+  "sha256": "6104deacb323d0d93a4a4456d7c0d4ff9283f976128d7b3ec527931518910d89"
+}

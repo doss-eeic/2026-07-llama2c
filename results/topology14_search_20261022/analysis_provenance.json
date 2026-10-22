@@ -1,0 +1,23 @@
+{
+  "source_sha256": {
+    "benchmarkconfig.py": "5dc47fb75789b9e5f52ad3c531a392e89767c12274b3284daa8026eadcf2babf",
+    "benchmark_topology14.py": "965070056e83c4a63cf3e2e8f97b9fdbd1f15f1445b19bb4dc368eaca2b0109f",
+    "benchmark_detail.py": "5d8fe541796cbcb6e0781d92abc69b4b2e0dc1a1a3fa22f8d0265584cdaf7274",
+    "topology.py": "cdd59dae18749a3ef50b9141b81fd8964d0b5c490e8159b36d4f6094db2dd39f",
+    "benchmark_topology.py": "e5e6a5081c393bd665ce5b620cc2585dccfad817996bdee78e393e27661b5633",
+    "__init__.py": "ce70cc0f3ed557b4c98ee5945c401dd55a9cb73ef09c7302ae4168323691a915",
+    "verify_topology14.py": "5bc26dc38da9dfc8a950d37fd84f5d8263f92c2a9568de86acf333003e4ff661",
+    "analyze_topology.py": "a587fea1eb63921e895d3d59246b6a845be97e92fc4813c407a78860e2949d49",
+    "report_topology.py": "c0beecb16d764d1c8fb87b2b9833e9cd0045e577a9969ea3bff1312dee537ead",
+    "topology_search.py": "21ff4725e0f94c5a26d124df8ac1d5136da7188adc53600958fcfc02e18e718b",
+    "benchmark_factorial.py": "452d8e14d45e6d6787e3167a5d3b0590144dfb98a50ad41ad7fca4d1b786ba2b",
+    "benchmark_distribute.py": "99dd63d7b91af516aa5eee7704227c4ff1ec399b26262866c6b79569b3bbf349",
+    "benchmark.py": "397c66d0cbd2aa51e5654dfd5e594ced63f8df0a08a5fc65233f6ff32053ee3b",
+    "analyze_topology14.py": "6d0b3998ebd2d481ccece94d84fec443bcb2d4023fb1d750c10f32a807bce1ca",
+    "topology14.py": "a3e971cccb63236a11c11c56c5ee61967fcf532b1e606bca701bf19f9b04febb",
+    "analyze_factorial.py": "fe7a9b9665f9144fa6a2c591150d36a55d9916ca217ce5b8322639a3b58c0077",
+    "benchmark_cores.py": "7f9c76bd8d5524ef5cc9382845fc7b6a148b6e2a6025361f0881d71382c0e61c",
+    "autotuner.py": "6476d9ad1d311c25e2b4f5720e6d3f5fceda038fa30c67232d0d558cf8b1d23c"
+  },
+  "trials_sha256": "37002b25cd167b823ea7cd2878c0ce7d526736896bd013a9b4a21468af7d0f5e"
+}

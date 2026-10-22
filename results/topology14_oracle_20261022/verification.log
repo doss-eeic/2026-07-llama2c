@@ -1,0 +1,247 @@
+{
+  "phases": [
+    {
+      "directory": "topology14_oracle_20261022",
+      "measurements": 1820,
+      "comparison_measurements": 1707,
+      "trials_sha256": "542ae4e953b1d714906e578a02c30434f30afc0c9783703ba2994bfb4edd2921"
+    },
+    {
+      "directory": "topology14_search_20261022",
+      "measurements": 1193,
+      "comparison_measurements": 1120,
+      "trials_sha256": "37002b25cd167b823ea7cd2878c0ce7d526736896bd013a9b4a21468af7d0f5e"
+    },
+    {
+      "directory": "topology14_confirm_20261022",
+      "measurements": 538,
+      "comparison_measurements": 520,
+      "trials_sha256": "1ae87a1ff9f986e5a91e798ecbc962defa6a3e644536c60beeda6c707250368c"
+    }
+  ],
+  "total_measurements": 3551,
+  "generation_sha256": "aed31b5dccc53ec57b969b614bb701d6c270b30bb2d9eb75061af2360b4e2658",
+  "actual_search_coverage": [
+    {
+      "method": "beam14",
+      "seed": 0,
+      "queries": 112,
+      "layer_sizes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "method": "beam14",
+      "seed": 1,
+      "queries": 112,
+      "layer_sizes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "method": "hierarchical",
+      "seed": 0,
+      "queries": 112,
+      "layer_sizes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "method": "hierarchical",
+      "seed": 1,
+      "queries": 112,
+      "layer_sizes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "method": "model",
+      "seed": 0,
+      "queries": 112,
+      "layer_sizes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "method": "model",
+      "seed": 1,
+      "queries": 112,
+      "layer_sizes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "method": "model_counts",
+      "seed": 0,
+      "queries": 112,
+      "layer_sizes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "method": "model_counts",
+      "seed": 1,
+      "queries": 112,
+      "layer_sizes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "method": "random",
+      "seed": 0,
+      "queries": 112,
+      "layer_sizes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "method": "random",
+      "seed": 1,
+      "queries": 112,
+      "layer_sizes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    }
+  ],
+  "all_full14_depths_verified": true,
+  "reference_sources_and_binaries_verified": true,
+  "all269_fixed_classes_x2_backends_x3_blocks_verified": true,
+  "independent_full14_variants": 16,
+  "independent_full14_blocks": 8,
+  "model_and_tokenizer_verified": true,
+  "full_joint_oracle_claimed": false,
+  "all_raw_artifacts_and_bracketing_state_snapshots_verified": true,
+  "tests_passed": 22,
+  "report_sha256": "c2d3540adc4248ccc9ed715f0a55c689eaf6970c490d099a7d30de5ef3ae2e93",
+  "verification_script_sha256": "4ae0062a4ca22abc1c016e695b7c1c6f17354a48bfe3b10347403bf34a051296"
+}

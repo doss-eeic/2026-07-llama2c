@@ -1,0 +1,8 @@
+Top measured cells (normalized exploratory ranking):
+L0-2-4-5-6-7-8-9_Osame_openmp_d1o1r1q1f1: 812.64 tok/s, relative=0.9931
+L0-2-1-3-4-5-8-9_O6-7-10-11_pthread_d0o1r0q1f1: 803.69 tok/s, relative=1.0047
+L0-2-4-5-6-7-8-9-10-11_Osame_openmp_d1o1r1q1f1: 800.47 tok/s, relative=1.0114
+L0-2-1-3-4-5-8-9_Osame_openmp_d1o1r0q1f1: 799.20 tok/s, relative=1.0140
+L0-2-1-3-4-5-8-9_Osame_openmp_d1o1r0q1f0: 774.55 tok/s, relative=1.0435
+L0-2-1-3-4-5-8-9_Osame_openmp_d1o1r0q0f0: 739.20 tok/s, relative=1.0929
+L0-2-1-3-4-5-8-9_Osame_openmp_d1o1r0q0f1: 738.62 tok/s, relative=1.0971

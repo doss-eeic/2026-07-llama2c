@@ -1,0 +1,93 @@
+{
+  "rule": "best observed online raw latency + two controls",
+  "candidates": [
+    {
+      "layer": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "output": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "backend": "openmp",
+      "dynamic": 1,
+      "output_dynamic": 1,
+      "row4": 1,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "output": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "backend": "openmp",
+      "dynamic": 1,
+      "output_dynamic": 1,
+      "row4": 0,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "output": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "backend": "pthread",
+      "dynamic": 1,
+      "output_dynamic": 1,
+      "row4": 0,
+      "qkv": 1,
+      "ffn": 1
+    }
+  ]
+}

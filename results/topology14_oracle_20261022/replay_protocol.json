@@ -1,0 +1,28 @@
+{
+  "space": "269 canonical fixed masks x2 backend; dynamic16/outputdynamic32,row1",
+  "candidates": 538,
+  "full_joint_space_evaluated_by_oracle": false,
+  "budgets": [
+    28,
+    56,
+    112,
+    168
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "training": "mean log raw ms/token over other2 blocks",
+  "evaluation": "untouched heldout1 block",
+  "regret": "recommended heldout latency / minimum heldout latency over538 -1",
+  "mandatory_prefix": "one queried fixed mask for each size1..14",
+  "caveat": "same3 measured blocks are reused;30 replays are not30 independent experiments"
+}

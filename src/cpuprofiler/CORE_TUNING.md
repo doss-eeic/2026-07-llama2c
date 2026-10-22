@@ -1,5 +1,12 @@
 # 異種コア向けOpenMP版
 
+Pなし・片側SMT・奇数E・LP-Eも含む全1〜14CPUの探索は
+[TOPOLOGY14.md](TOPOLOGY14.md)、[結果](../../results/topology14_oracle_20261022/README.md)を参照。
+
+追加の480採用候補の比較・トポロジーを使う逐次探索は
+[TOPOLOGY_SEARCH.md](TOPOLOGY_SEARCH.md) と
+[2026-10-22の結果](../../results/topology_adoption_20261022/README.md) を参照。
+
 `python3 src/cpuprofiler/benchmark_cores.py`、またはIDEから同ファイルを実行する。
 `main()`のBenchmarkConfigでCPU、層内人数、output人数、チャンク数を指定できる。
 ビルド、CPU固定、環境変数、シャッフル、結果保存はPythonが行う。

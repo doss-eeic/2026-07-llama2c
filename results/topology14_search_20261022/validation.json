@@ -1,0 +1,8 @@
+{
+  "measurements": 1193,
+  "generation_sha256": "aed31b5dccc53ec57b969b614bb701d6c270b30bb2d9eb75061af2360b4e2658",
+  "raw_outputs_and_summaries_verified": true,
+  "source_and_binary_hashes_verified": true,
+  "runtime_configs_match_plan": true,
+  "complete_blocks_or_search_traces_verified": true
+}

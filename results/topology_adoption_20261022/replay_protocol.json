@@ -1,0 +1,43 @@
+{
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19
+  ],
+  "budgets": [
+    12,
+    24,
+    48,
+    96
+  ],
+  "heldout_blocks": [
+    1,
+    2,
+    3
+  ],
+  "raw_latency_sensitivity": false,
+  "train": "arithmetic mean log normalized latency from all other blocks",
+  "objective": "minimize log relative latency",
+  "recommendation": "lowest observed training latency; unobserved predictions never adopted",
+  "regret": "heldout selected latency / heldout best latency - 1; hindsight oracle is optimistic",
+  "measurement_cost": "budget * training block count; excludes separately reported control/warmup/confirmation",
+  "caveat": "replay seeds reuse measured data; three heldout folds are not independent experiments",
+  "full_catalog": 480
+}

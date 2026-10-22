@@ -1,0 +1,15 @@
+replay heldout block 1: complete
+replay heldout block 2: complete
+replay heldout block 3: complete
+replay heldout block 1: complete
+replay heldout block 2: complete
+replay heldout block 3: complete
+Top measured cells (normalized exploratory ranking):
+L0-2-4-5-8-9_O6-7-10-11_pthread_d1o1r0q1f1: 753.66 tok/s, relative=0.9257
+L0-2-4-5-6-7_O8-9-10-11_pthread_d1o1r0q1f1: 739.08 tok/s, relative=0.9481
+L0-2-4-5-8-9_O1-3-6-7-10-11_pthread_d0o1r0q1f1: 751.78 tok/s, relative=0.9538
+L0-2-4-5-6-7-8-9-10-11_Osame_pthread_d1o1r0q1f1: 746.21 tok/s, relative=0.9649
+L0-2-4-5-6-7_O8-9-10-11_pthread_d1o1r1q1f1: 781.87 tok/s, relative=0.9678
+L0-2-1-3-4-5-8-9_Osame_openmp_d0o0r1q1f1: 747.52 tok/s, relative=0.9702
+L0-2-1-3-4-5-8-9_O6-7-10-11_pthread_d0o1r1q1f1: 797.17 tok/s, relative=0.9704
+L0-2-1-3-4-5-8-9_O6-7-10-11-12-13_pthread_d1o1r0q1f1: 772.29 tok/s, relative=0.9707

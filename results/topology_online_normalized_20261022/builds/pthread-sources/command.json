@@ -1,0 +1,12 @@
+[
+  "gcc",
+  "-Ofast",
+  "-march=native",
+  "-DLLAMA_STAY",
+  "-DLLAMA_EXPERIMENT",
+  "-pthread",
+  "/home/denjo/2026-07-llama2c/run.c",
+  "-lm",
+  "-o",
+  "/home/denjo/2026-07-llama2c/results/topology_online_normalized_20261022/builds/pthread"
+]
