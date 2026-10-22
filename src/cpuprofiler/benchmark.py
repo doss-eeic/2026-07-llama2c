@@ -35,6 +35,10 @@ from pathlib import Path
 from dataclasses import dataclass
 
 
+# run.c の -q で選べる出力層の計算方法
+CLASSIFIERS = ("fp32", "int8-exact")
+
+
 @dataclass(frozen=True)
 class BenchmarkConfig:
     # 全体の cpu 指定（taskset）。body_cpus / cls_cpus を使うときは、指定しなかった区間がこれを使う。
@@ -58,6 +62,9 @@ class BenchmarkConfig:
     body_cpus: tuple[int, ...] | None = None
     # 出力層のcpu指定（run.c の -C）。スレッド数は len(cls_cpus)
     cls_cpus: tuple[int, ...] | None = None
+
+    # 出力層の計算方法（run.c の -q）。"fp32" か "int8-exact"（int8-exact は temperature=0 のみ）
+    classifier: str = "fp32"
 
     @property
     def uses_sections(self) -> bool:
@@ -119,6 +126,12 @@ class BenchmarkRunner:
             if section is not None and not section:
                 raise ValueError("body_cpus / cls_cpus must not be empty")
 
+        if config.classifier not in CLASSIFIERS:
+            raise ValueError(f"classifier must be one of {CLASSIFIERS}")
+
+        if config.classifier == "int8-exact" and config.temperature != 0.0:
+            raise ValueError("classifier int8-exact requires temperature 0")
+
         # OpenMPの環境変数
         env = os.environ.copy()
 
@@ -146,7 +159,8 @@ class BenchmarkRunner:
             "-n", str(config.steps),
             "-t", str(config.temperature),
             "-s", str(config.seed),
-            "-i", config.prompt
+            "-i", config.prompt,
+            "-q", config.classifier
         ]
 
         # 区間ごとの cpu 指定（指定した区間だけ渡す）

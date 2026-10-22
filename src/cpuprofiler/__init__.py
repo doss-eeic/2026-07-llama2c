@@ -1,4 +1,4 @@
-from .benchmark import BenchmarkConfig, BenchmarkResult, BenchmarkRunner
+from .benchmark import CLASSIFIERS, BenchmarkConfig, BenchmarkResult, BenchmarkRunner
 from .topology import CPU, CPUTopology
 from .autotuner import AutoTuner
 import os
@@ -19,28 +19,40 @@ def save_output(name, lines):
             f.write(line + "\n")
     return path_to_save
 
+def parse_classifier():
+    # コマンドラインの "-q <方法>" を読む（run.c の -q と同じ）。省略すると fp32
+    if "-q" not in sys.argv:
+        return "fp32"
+    i = sys.argv.index("-q")
+    if i + 1 >= len(sys.argv) or sys.argv[i + 1] not in CLASSIFIERS:
+        raise SystemExit(f"-q must be one of {CLASSIFIERS}")
+    return sys.argv[i + 1]
+
 def main(*args):
+    classifier = parse_classifier()
+
     if len(sys.argv) == 1 or sys.argv[1] == "topology":
         CPUTopology().print_summary()
 
     elif sys.argv[1] == "beam":
-        print("Running beam search...")
-        tuner = AutoTuner(CPUTopology(), BenchmarkRunner())
+        print(f"Running beam search... (output layer: {classifier})")
+        tuner = AutoTuner(CPUTopology(), BenchmarkRunner(), classifier)
         results = tuner.beam_search()
         lines = []
         for config, result in sorted(results, key=lambda x: x[1].tokens_per_second, reverse=True):
             lines.append(f"Configuration: {config}, Performance: {result.tokens_per_second} tokens/sec")
             print(f"Configuration: {config}, Performance: {result.tokens_per_second} tokens/sec")
 
-        path_to_save = save_output("beam", lines)
+        path_to_save = save_output(f"beam_{classifier}", lines)
         print(f"Saved to {path_to_save}")
 
     elif sys.argv[1] == "split":
-        print("Running beam search for body / output layer...")
-        tuner = AutoTuner(CPUTopology(), BenchmarkRunner())
+        print(f"Running beam search for body / output layer... (output layer: {classifier})")
+        tuner = AutoTuner(CPUTopology(), BenchmarkRunner(), classifier)
         config, result = tuner.split_beam_search()
 
         lines = [
+            f"Output layer: {classifier}",
             f"Best body CPUs: {config.body_cpus}, {result.body_ms_per_token} ms/token",
             f"Best output layer CPUs: {config.cls_cpus}, {result.cls_ms_per_token} ms/token",
             f"Best performance: {result.tokens_per_second} tokens/sec",
@@ -48,12 +60,12 @@ def main(*args):
         for line in lines:
             print(line)
 
-        path_to_save = save_output("split", lines)
+        path_to_save = save_output(f"split_{classifier}", lines)
         print(f"Saved to {path_to_save}")
 
     elif sys.argv[1] == "sample":
-        print("Running benchmark...")
-        tuner = AutoTuner(CPUTopology(), BenchmarkRunner())
+        print(f"Running benchmark... (output layer: {classifier})")
+        tuner = AutoTuner(CPUTopology(), BenchmarkRunner(), classifier)
         best_result = tuner.search()
         print(f"Best configuration: {best_result.config}")
         print(f"Best performance: {best_result.tokens_per_second} tokens/sec")

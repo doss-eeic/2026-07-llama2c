@@ -9,9 +9,10 @@ SECTIONS = (None, "body", "cls")
 
 
 class AutoTuner:
-    def __init__(self, topology: CPUTopology, runner: BenchmarkRunner):
+    def __init__(self, topology: CPUTopology, runner: BenchmarkRunner, classifier="fp32"):
         self.topology = topology
         self.runner = runner
+        self.classifier = classifier  # 出力層の計算方法（run.c の -q）。作る構成すべてに使う
         self.history = []
 
     def evaluate(self, config):
@@ -19,21 +20,22 @@ class AutoTuner:
         self.history.append(result)
         return result
 
-    @staticmethod
-    def make_config(cpus, section=None, fixed=None):
+    def make_config(self, cpus, section=None, fixed=None):
         # section の cpu を cpus にした構成を作る。
         # もう片方の区間は fixed を使う。fixed が None なら cpus と同じにする
         # （区間ごとのスレッド数が同じなので、余ったスレッドがもう片方の cpu を邪魔しない）
         cpus = tuple(sorted(cpus))
         if section is None:
             # 出力層も同じスレッド数にする（output_threads の既定値 8 を使わない）
-            return BenchmarkConfig(cpus, len(cpus), output_threads=len(cpus))
+            return BenchmarkConfig(
+                cpus, len(cpus), output_threads=len(cpus), classifier=self.classifier
+            )
 
         other = fixed if fixed is not None else cpus
         if section == "body":
-            return BenchmarkConfig(body_cpus=cpus, cls_cpus=other)
+            return BenchmarkConfig(body_cpus=cpus, cls_cpus=other, classifier=self.classifier)
         if section == "cls":
-            return BenchmarkConfig(body_cpus=other, cls_cpus=cpus)
+            return BenchmarkConfig(body_cpus=other, cls_cpus=cpus, classifier=self.classifier)
         raise ValueError(f"Invalid section: {section}")
 
     @staticmethod
@@ -173,5 +175,7 @@ class AutoTuner:
             )
             cls_best = self.best(results, "cls")[0].cls_cpus
 
-        config = BenchmarkConfig(body_cpus=body_best, cls_cpus=cls_best)
+        config = BenchmarkConfig(
+            body_cpus=body_best, cls_cpus=cls_best, classifier=self.classifier
+        )
         return config, self.evaluate(config)
