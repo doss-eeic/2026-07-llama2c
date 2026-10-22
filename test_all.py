@@ -41,12 +41,12 @@ expected_stdout = b'Once upon a time, there was a little girl named Lily. She lo
 # actual tests
 
 def test_runc():
-    """ Forwards a model against a known-good desired outcome in run.c for 200 steps"""
+    """ Forwards a model against a known-good desired outcome in run/run.c for 200 steps"""
     attempt_download_files()
 
     model_path = os.path.join(test_ckpt_dir, "stories260K.bin")
     tokenizer_path = os.path.join(test_ckpt_dir, "tok512.bin")
-    command = ["./run", model_path, "-z", tokenizer_path, "-t", "0.0", "-n", "200"]
+    command = ["./build/run-fused", model_path, "-z", tokenizer_path, "-t", "0.0", "-n", "200"]
     with open('err.txt', mode='wb') as fe:
         with open('stdout.txt', mode='wb') as fo:
             proc = subprocess.Popen(command, stdout=fo, stderr=fe)  #pipe in windows terminal does funny things like replacing \n with \r\n
@@ -54,7 +54,7 @@ def test_runc():
 
     with open('stdout.txt', mode='r') as f:
         stdout = f.read()
-    # strip the very last \n that is added by run.c for aesthetic reasons
+    # strip the very last \n that is added by run/run.c for aesthetic reasons
     stdout = stdout[:-1].encode('ascii')
 
     assert stdout == expected_stdout

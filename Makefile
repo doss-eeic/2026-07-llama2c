@@ -1,18 +1,21 @@
 # choose your compiler, e.g. gcc/clang
 # example override to clang: make run CC=clang
 CC = gcc
+CPPFLAGS ?= -I.
+RUN_SRC = run/run.c
+RUN_HEADERS = src/fused.h src/classifier.h
 
 # the most basic way of building that is most likely to work on most systems
 .PHONY: run
-run: run.c
-	$(CC) -O3 -o run run.c -lm
-	$(CC) -O3 -o runq runq.c -lm
+run: $(RUN_SRC) $(RUN_HEADERS) | build
+	$(CC) $(CPPFLAGS) -O3 -o build/run-fused $(RUN_SRC) -lm
+	$(CC) $(CPPFLAGS) -O3 -o runq runq.c -lm
 
 # useful for a debug build, can then e.g. analyze with valgrind, example:
-# $ valgrind --leak-check=full ./run out/model.bin -n 3
-rundebug: run.c
-	$(CC) -g -o run run.c -lm
-	$(CC) -g -o runq runq.c -lm
+# $ valgrind --leak-check=full ./build/run-fused out/model.bin -n 3
+rundebug: $(RUN_SRC) $(RUN_HEADERS) | build
+	$(CC) $(CPPFLAGS) -g -o build/run-fused $(RUN_SRC) -lm
+	$(CC) $(CPPFLAGS) -g -o runq runq.c -lm
 
 # https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html
 # https://simonbyrne.github.io/notes/fastmath/
@@ -24,40 +27,40 @@ rundebug: run.c
 # It turns off -fsemantic-interposition.
 # In our specific application this is *probably* okay to use
 .PHONY: runfast
-runfast: run.c
-	$(CC) -Ofast -o run run.c -lm
-	$(CC) -Ofast -o runq runq.c -lm
+runfast: $(RUN_SRC) $(RUN_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Ofast -o build/run-fused $(RUN_SRC) -lm
+	$(CC) $(CPPFLAGS) -Ofast -o runq runq.c -lm
 
 # additionally compiles with OpenMP, allowing multithreaded runs
 # make sure to also enable multiple threads when running, e.g.:
-# OMP_NUM_THREADS=4 ./run out/model.bin
+# OMP_NUM_THREADS=4 ./build/run-fused out/model.bin
 .PHONY: runomp
-runomp: run.c
-	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run
-	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq
+runomp: $(RUN_SRC) $(RUN_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Ofast -fopenmp -march=native $(RUN_SRC)  -lm  -o build/run-fused
+	$(CC) $(CPPFLAGS) -Ofast -fopenmp -march=native runq.c  -lm  -o runq
 
 .PHONY: win64
-win64:
-	x86_64-w64-mingw32-gcc -Ofast -D_WIN32 -o run.exe -I. run.c win.c
+win64: $(RUN_SRC) $(RUN_HEADERS) | build
+	x86_64-w64-mingw32-gcc -Ofast -D_WIN32 -o build/run-fused.exe -I. $(RUN_SRC) win.c
 	x86_64-w64-mingw32-gcc -Ofast -D_WIN32 -o runq.exe -I. runq.c win.c
 
 # compiles with gnu99 standard flags for amazon linux, coreos, etc. compatibility
 .PHONY: rungnu
-rungnu:
-	$(CC) -Ofast -std=gnu11 -o run run.c -lm
-	$(CC) -Ofast -std=gnu11 -o runq runq.c -lm
+rungnu: $(RUN_SRC) $(RUN_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Ofast -std=gnu11 -o build/run-fused $(RUN_SRC) -lm
+	$(CC) $(CPPFLAGS) -Ofast -std=gnu11 -o runq runq.c -lm
 
 .PHONY: runompgnu
-runompgnu:
-	$(CC) -Ofast -fopenmp -std=gnu11 run.c  -lm  -o run
-	$(CC) -Ofast -fopenmp -std=gnu11 runq.c  -lm  -o runq
+runompgnu: $(RUN_SRC) $(RUN_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Ofast -fopenmp -std=gnu11 $(RUN_SRC)  -lm  -o build/run-fused
+	$(CC) $(CPPFLAGS) -Ofast -fopenmp -std=gnu11 runq.c  -lm  -o runq
 
 # run all tests
 .PHONY: test
 test:
 	pytest
 
-# run only tests for run.c C implementation (is a bit faster if only C code changed)
+# run only tests for $(RUN_SRC) C implementation (is a bit faster if only C code changed)
 .PHONY: testc
 testc:
 	pytest -k runc
@@ -67,10 +70,18 @@ testc:
 VERBOSITY ?= 0
 .PHONY: testcc
 testcc:
-	$(CC) -DVERBOSITY=$(VERBOSITY) -O3 -o testc test.c -lm
+	$(CC) $(CPPFLAGS) -DVERBOSITY=$(VERBOSITY) -O3 -o testc test.c -lm
 	./testc
 
 .PHONY: clean
 clean:
-	rm -f run
+	rm -f build/run-fused build/run-upstream build/run-fused.exe
 	rm -f runq
+
+# Unmodified upstream baseline, built with the same OpenMP optimization flags.
+.PHONY: runupstream
+runupstream: run/run_upstream.c | build
+	$(CC) $(CPPFLAGS) -Ofast -fopenmp -march=native $< -lm -o build/run-upstream
+
+build:
+	mkdir -p $@

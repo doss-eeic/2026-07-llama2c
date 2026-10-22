@@ -1,16 +1,24 @@
 ## llama2.c
 
+The inference sources live in `run/`:
+
+- [run/run.c](run/run.c): optimized QKV/FFN inference, optional hugepages and two-stage argmax.
+- [run/run_upstream.c](run/run_upstream.c): unchanged upstream `350e04fe` baseline.
+
+Build both OpenMP executables with `make runomp runupstream`.
+They are written to `build/run-fused` and `build/run-upstream`.
+
 <p align="center">
   <img src="assets/llama_cute.jpg" width="300" height="300" alt="Cute Llama">
 </p>
 
 Have you ever wanted to inference a baby [Llama 2](https://ai.meta.com/llama/) model in pure C? No? Well, now you can!
 
-Train the Llama 2 LLM architecture in PyTorch then inference it with one simple 700-line C file ([run.c](run.c)). You might think that you need many billion parameter LLMs to do anything useful, but in fact very small LLMs can have surprisingly strong performance if you make the domain narrow enough (ref: [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) paper). This repo is a "fullstack" train + inference solution for Llama 2 LLM, with focus on minimalism and simplicity.
+Train the Llama 2 LLM architecture in PyTorch then inference it with one simple 700-line C file ([run/run.c](run/run.c)). You might think that you need many billion parameter LLMs to do anything useful, but in fact very small LLMs can have surprisingly strong performance if you make the domain narrow enough (ref: [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) paper). This repo is a "fullstack" train + inference solution for Llama 2 LLM, with focus on minimalism and simplicity.
 
 As the architecture is identical, you can also load and inference Meta's Llama 2 models. However, the current code only inferences models in fp32, so you will most likely not be able to productively load models larger than 7B. Work on model quantization is currently ongoing.
 
-Please note that this repo started recently as a fun weekend project: I took my earlier [nanoGPT](https://github.com/karpathy/nanoGPT), tuned it to implement the Llama-2 architecture instead of GPT-2, and the meat of it was writing the C inference engine in [run.c](run.c). So the project is young and moving quickly. Hat tip to the awesome [llama.cpp](https://github.com/ggerganov/llama.cpp) for inspiring this project. Compared to llama.cpp, I wanted something super simple, minimal, and educational so I chose to hard-code the Llama 2 architecture and just roll one inference file of pure C with no dependencies.
+Please note that this repo started recently as a fun weekend project: I took my earlier [nanoGPT](https://github.com/karpathy/nanoGPT), tuned it to implement the Llama-2 architecture instead of GPT-2, and the meat of it was writing the C inference engine in [run/run.c](run/run.c). So the project is young and moving quickly. Hat tip to the awesome [llama.cpp](https://github.com/ggerganov/llama.cpp) for inspiring this project. Compared to llama.cpp, I wanted something super simple, minimal, and educational so I chose to hard-code the Llama 2 architecture and just roll one inference file of pure C with no dependencies.
 
 ## feel the magic
 
@@ -38,14 +46,14 @@ Compile and run the C code:
 
 ```bash
 make run
-./run stories15M.bin
+./build/run-fused stories15M.bin
 ```
 
 You'll see the text stream a sample. On my M1 MacBook Air this runs at ~110 tokens/s. See [performance](#performance) or the Makefile for compile flags that can significantly speed this up. We can also try a bit bigger 42M parameter model:
 
 ```bash
 wget https://huggingface.co/karpathy/tinyllamas/resolve/main/stories42M.bin
-./run stories42M.bin
+./build/run-fused stories42M.bin
 ```
 
 This still runs at interactive rates and samples more coherent and diverse stories:
@@ -55,7 +63,7 @@ This still runs at interactive rates and samples more coherent and diverse stori
 You can also prompt the model with a prefix or a number of additional command line arguments, e.g. to sample at temperature 0.8 for 256 steps and with a prompt:
 
 ```bash
-./run stories42M.bin -t 0.8 -n 256 -i "One day, Lily met a Shoggoth"
+./build/run-fused stories42M.bin -t 0.8 -n 256 -i "One day, Lily met a Shoggoth"
 ```
 
 > One day, Lily met a Shoggoth. He was very shy, but was also very generous. Lily said “Hello Shoggy! Can I be your friend?” Shoggy was happy to have a friend and said “Yes, let’s explore the universe together!” So they set off on a journey to explore the universe. As they travelled, Shoggy was happy to explain to Lily about all the wonderful things in the universe. At the end of the day, Lily and Shoggy had gathered lots of wonderful things from the universe, and they both felt very proud. They promised to explore the universe as one big pair and to never stop being generous to each other.
@@ -76,7 +84,7 @@ python export.py llama2_7b.bin --meta-llama path/to/llama/model/7B
 The export will take ~10 minutes or so and generate a 26GB file (the weights of the 7B model in float32) called `llama2_7b.bin` in the current directory. It has been [reported](https://github.com/karpathy/llama2.c/pull/85) that despite efforts. I would not attempt to run anything above 7B right now for two reasons: first, 13B+ currently doesn't work because of integer flow in pointer arithmetic, which is yet to be fixed, and second, even if it were fixed, this repo is doing float32 inference right now, so it would be fairly unusably slow. Once the export is done, we can run it:
 
 ```bash
-./run llama2_7b.bin
+./build/run-fused llama2_7b.bin
 ```
 
 This ran at about 4 tokens/s compiled with [OpenMP](#OpenMP) on 96 threads on my CPU Linux box in the cloud. (On my MacBook Air M1, currently it's closer to 30 seconds per token if you just build with `make runfast`.) Example output:
@@ -94,7 +102,7 @@ python export.py llama2_7b_chat.bin --meta-llama /path/to/7B-chat
 Then chat with it by specifying the chat mode using the `-m` flag, e.g.:
 
 ```bash
-./run llama2_7b_chat.bin -m chat
+./build/run-fused llama2_7b_chat.bin -m chat
 ```
 
 You can also try Meta's Code Llama models even if support for them is incomplete. In particular, some hyperparameters changed (e.g. the constant in RoPE layer), so the inference is not exactly correct and a bit buggy right now. Looking into fixes. Make sure to build the tokenizer for the plain and instruct variants and pass it when doing inference.
@@ -102,7 +110,7 @@ You can also try Meta's Code Llama models even if support for them is incomplete
 ```bash
 python export.py codellama2_7b.bin --meta-llama /path/to/CodeLlama-7b
 python tokenizer.py --tokenizer-model=/path/to/CodeLlama-7b/tokenizer.model
-./run codellama2_7b.bin -z /path/to/CodeLlama-7b/tokenizer.bin
+./build/run-fused codellama2_7b.bin -z /path/to/CodeLlama-7b/tokenizer.bin
 ```
 
 Chat with Code Llama Instruct:
@@ -110,12 +118,12 @@ Chat with Code Llama Instruct:
 ```bash
 python export.py codellama2_7b_instruct.bin --meta-llama /path/to/CodeLlama-7b-Instruct
 python tokenizer.py --tokenizer-model=/path/to/CodeLlama-7b-Instruct/tokenizer.model
-./run codellama2_7b_instruct.bin -m chat -z /path/to/CodeLlama-7b-Instruct/tokenizer.bin
+./build/run-fused codellama2_7b_instruct.bin -m chat -z /path/to/CodeLlama-7b-Instruct/tokenizer.bin
 ```
 
 ## int8 quantization
 
-The (default) script [run.c](run.c), above, uses a float32 forward pass, where the entire calculation of the forward pass is kept in fp32. This is very easy to understand as far as reference code goes, but it has the following downsides: the model checkpoint files are very large (it takes 4 bytes per every individual weight), and the forward pass is relatively slow. The (very) common inference optimization employed in practice is to quantize the model parameters to lower precision, giving up a little bit of correctness in return for smaller checkpoint sizes and faster forward passes (as most of the inference uses integer arithmetic). Empirically, LLMs can tolerate precisions as low as 4-bit (or even lower), but we use int8 here because it is a "safe" setting that gets us the benefits but doesn't sacrifice too much of the model accuracy. Only the weights that participate in matmuls are quantized. All the other parameters (e.g. especially the scale and bias in RMSNorm) are kept in float32, because these layers are very sensitive. Now, if all you're after is reduction in checkpoint sizes, you could quantize the weights, save the checkpoint, and then dequantize them in run.c, and do float32 inference as normal and call it a day. This is totally fine. But here, we go one step further (as is standard practice) and additionally quantize the activations in the forward pass. This requires us to dynamically quantize and dequantize between float32 and int8 at runtime, which adds overhead. But the benefit is that now the majority of the calculations (the matmuls especially!) are using pure integer arithmetic, where both weights and activations enter as int8. This is where the speedups can fundamentally come from. The version we use is the "Q8_0" quantization (llama.cpp terminology), where the 0 means that the weight quantization is symmetric around 0, quantizing to the range [-127, 127].
+The (default) script [run/run.c](run/run.c), above, uses a float32 forward pass, where the entire calculation of the forward pass is kept in fp32. This is very easy to understand as far as reference code goes, but it has the following downsides: the model checkpoint files are very large (it takes 4 bytes per every individual weight), and the forward pass is relatively slow. The (very) common inference optimization employed in practice is to quantize the model parameters to lower precision, giving up a little bit of correctness in return for smaller checkpoint sizes and faster forward passes (as most of the inference uses integer arithmetic). Empirically, LLMs can tolerate precisions as low as 4-bit (or even lower), but we use int8 here because it is a "safe" setting that gets us the benefits but doesn't sacrifice too much of the model accuracy. Only the weights that participate in matmuls are quantized. All the other parameters (e.g. especially the scale and bias in RMSNorm) are kept in float32, because these layers are very sensitive. Now, if all you're after is reduction in checkpoint sizes, you could quantize the weights, save the checkpoint, and then dequantize them in run/run.c, and do float32 inference as normal and call it a day. This is totally fine. But here, we go one step further (as is standard practice) and additionally quantize the activations in the forward pass. This requires us to dynamically quantize and dequantize between float32 and int8 at runtime, which adds overhead. But the benefit is that now the majority of the calculations (the matmuls especially!) are using pure integer arithmetic, where both weights and activations enter as int8. This is where the speedups can fundamentally come from. The version we use is the "Q8_0" quantization (llama.cpp terminology), where the 0 means that the weight quantization is symmetric around 0, quantizing to the range [-127, 127].
 
 The quantized forward pass is implemented in [runq.c](runq.c). To use it, we have to export the model in the quantized format. For example, the float32 version of Llama 2 7B was exported as:
 
@@ -133,7 +141,7 @@ This runs for a few minutes, but now creates only a 6.7GB file. For exporting no
 
 ```
 make runomp
-OMP_NUM_THREADS=64 ./run llama2_7b.bin -n 40
+OMP_NUM_THREADS=64 ./build/run-fused llama2_7b.bin -n 40
 OMP_NUM_THREADS=64 ./runq llama2_7b_q80.bin -n 40
 ```
 
@@ -188,7 +196,7 @@ make run
 You can now run it simply as
 
 ```bash
-./run stories15M.bin
+./build/run-fused stories15M.bin
 ```
 
 Watch the tokens stream by, fun! We can also run the PyTorch inference script for a comparison. Download one of the models again from huggingface hub and point the `sample.py` script at it:
@@ -229,7 +237,7 @@ Now that we have pretokenized the dataset with our custom tokenizer, we can trai
 python train.py --vocab_source=custom --vocab_size=4096
 ```
 
-(The defaults are `llama2` and `32000` respectively, which indicates the default Llama 2 tokenizer). This trains the model. Finally we are ready to run inference with our `run.c` script. For that we need two things. Number one, we have to export our tokenizer in the `.bin` format, do that with:
+(The defaults are `llama2` and `32000` respectively, which indicates the default Llama 2 tokenizer). This trains the model. Finally we are ready to run inference with our `run/run.c` script. For that we need two things. Number one, we have to export our tokenizer in the `.bin` format, do that with:
 
 ```
 python tokenizer.py --tokenizer-model=data/tok4096.model
@@ -238,7 +246,7 @@ python tokenizer.py --tokenizer-model=data/tok4096.model
 This writes the tokenizer to `data/tok4096.bin`. Now we can run inference, pointing it to this tokenizer using the `-z` flag:
 
 ```
-./run out/model.bin -z data/tok4096.bin
+./build/run-fused out/model.bin -z data/tok4096.bin
 ```
 
 This should print the samples. If you leave out the `-z` flag, it will use the default Llama 2 tokenizer, which would generate a good sequence of integers, but they would get translated using a different vocabulary to text, so it would look like gibberish.
@@ -248,7 +256,8 @@ This should print the samples. If you leave out the `-z` flag, it will use the d
 There are many ways to potentially speed up this code depending on your system. Have a look at the [Makefile](Makefile), which contains a lot of notes. The `make run` command currently uses the `-O3` optimization by default, i.e.:
 
 ```bash
-gcc -O3 -o run run.c -lm
+mkdir -p build
+gcc -I. -O3 -o build/run-fused run/run.c -lm
 ```
 
 -O3 includes optimizations that are expensive in terms of compile time and memory usage. Including vectorization, loop unrolling, and predicting branches.
@@ -267,13 +276,14 @@ If compiling with gcc, try experimenting with `-funroll-all-loops`, see PR [#183
 You'll need to install the OpenMP library and the clang compiler first (e.g. `apt install clang libomp-dev` on ubuntu). Then you can compile with `make runomp`, which does:
 
 ```bash
-clang -Ofast -fopenmp -march=native run.c  -lm  -o run
+mkdir -p build
+clang -I. -Ofast -fopenmp -march=native run/run.c -lm -o build/run-fused
 ```
 
 When you run inference make sure to use OpenMP flags to set the number of threads, e.g.:
 
 ```bash
-OMP_NUM_THREADS=4 ./run out/model.bin
+OMP_NUM_THREADS=4 ./build/run-fused out/model.bin
 ```
 
 Depending on your system resources you may want to tweak these hyperparameters and use more threads. But more is not always better, usually this is a bit U shaped. In particular, if your CPU has SMT (multithreading), try setting the number of threads to the number of physical cores rather than logical cores. The performance difference can be large due to cache thrashing and communication overhead. The PyTorch documentation [CPU specific optimizations
@@ -328,7 +338,7 @@ A few examples of PRs are that are not an excellent fit:
 
 - adding more than several #ifdefs all over the place in code. If they are localized / few, might be okay.
 - adding a lot of code that is very specific to some specific platform (e.g. MCUs, or some special version of linux or processor). These may be a better fit for forks of the project, and I am very happy to maintain a list of these forks in section below.
-- adding hundreds of lines of code to run.c that are only active in specific scenarios or platforms.
+- adding hundreds of lines of code to run/run.c that are only active in specific scenarios or platforms.
 
 If your candidate PRs have elements of these it doesn't mean they won't get merged, it just means they will make it into the gray territory. TLDR: I am eager to merge any mostly small, mostly localized, broadly applicable, clean changes that improve the efficiency and portability of the repo, while keep its hackability and readability. I appreciate all PRs seeking to help me improve the project, thank you! <3.
 
@@ -403,7 +413,7 @@ If your candidate PRs have elements of these it doesn't mean they won't get merg
 
 ## unsorted todos
 
-- add support in run.c of reading version 1+ files from export, later deprecate "version 0"
+- add support in run/run.c of reading version 1+ files from export, later deprecate "version 0"
 - run.cu (CUDA) investigate and merge
 - add more tests inside [test.c](test.c)
 - add Engine class for use in sample.py that does efficient inference in PyTorch, e.g. KV cache keeping
