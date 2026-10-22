@@ -75,6 +75,8 @@ def run(config: BenchmarkConfig) -> dict[str, float]:
     ]
     if config.optimize_weights:
         command += ["-w", "1"]
+    if config.two_stage_argmax:
+        command += ["-a", "1", "-g", str(config.group_size)]
     with (output / "stdout.txt").open("w") as stdout, (output / "stderr.log").open("w") as stderr:
         subprocess.run(command, cwd=ROOT, env=env, stdout=stdout, stderr=stderr,
                        check=True, timeout=config.timeout)
@@ -124,7 +126,8 @@ def main():
         rates[name].append(summary["tokens_per_second"])
         rows.append({"config": name, "run": i + 1,
                      "cpus": ",".join(map(str, config.cpus)), "threads": config.threads,
-                     "schedule": config.omp_schedule, "optimize_weights": config.optimize_weights, **summary})
+                     "schedule": config.omp_schedule, "optimize_weights": config.optimize_weights,
+                     "two_stage_argmax": config.two_stage_argmax, "group_size": config.group_size, **summary})
         print(f"{name} run {i + 1}: {summary['tokens_per_second']:.2f} tokens/s", flush=True)
         with (output_root / "summary.csv").open("w", newline="") as file:
             writer = csv.DictWriter(file, fieldnames=list(rows[0]))

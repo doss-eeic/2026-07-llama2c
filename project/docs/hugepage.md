@@ -15,7 +15,8 @@ QKV・FFN融合と全体共通の`schedule(runtime)`は維持する。
 元のファイルmmapを解放し、匿名領域の解放は既存の`free_transformer`で行う。
 
 システムのTHP・電源設定は変更しない。コピーするモードはLinux用。
-Sakurada版の比較専用モード・層単位の再配置・量子化・出力argmaxは取り込んでいない。
+Sakurada版の比較専用モード・層単位の再配置は取り込んでいない。
+出力層の量子化と二段階argmaxは[別機能](two-stage-argmax.md)として切り替える。
 このブランチの`-w`は0/1の有効・無効だけを指定する。
 
 ```sh

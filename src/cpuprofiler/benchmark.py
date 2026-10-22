@@ -96,6 +96,8 @@ class BenchmarkRunner:
         # upstreamは-w非対応。既定のmmapはオプションを渡さず実行する。
         if config.optimize_weights:
             command += ["-w", "1"]
+        if config.two_stage_argmax:
+            command += ["-a", "1", "-g", str(config.group_size)]
 
         result = subprocess.run(
             command,
@@ -266,5 +268,50 @@ def main3():
     print(f"未改造版からの合計改善率: {total:+.2f}%")
 
 
+def main4():
+    # 二段階argmaxの追加効果と、未改造からの累積効果を比較する。
+    fused = BenchmarkRunner(binary_path="./build/run-fused")
+    config = BenchmarkConfig(
+        cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10, 11),
+        threads=10,
+        temperature=0.0,
+        omp_schedule="dynamic,16",
+        omp_proc_bind="close",
+        omp_places="{0},{2},{4},{5},{6},{7},{8},{9},{10},{11}",
+        group_size=144,
+    )
+    weights = replace(config, optimize_weights=True)
+    cases = {
+        "upstream": (BenchmarkRunner(binary_path="./build/run-upstream"), config),
+        "fused": (fused, config),
+        "fused+weights": (fused, weights),
+        "fused+weights+argmax": (fused, replace(weights, two_stage_argmax=True)),
+    }
+    print(f"threads={config.threads}, OMP_SCHEDULE={config.omp_schedule}, "
+          f"temperature={config.temperature}, group_size={config.group_size}", flush=True)
+    for runner, case_config in cases.values():
+        runner.run(case_config)
+
+    results = {name: [] for name in cases}
+    names = list(cases)
+    for repeat in range(10):
+        offset = repeat % len(names)
+        for name in names[offset:] + names[:offset]:
+            runner, case_config = cases[name]
+            result = runner.run(case_config)
+            results[name].append(result.tokens_per_second)
+            print(f"{repeat + 1:02d} {name:20s}: "
+                  f"{result.tokens_per_second:.2f} tok/s", flush=True)
+
+    means = {name: sum(values) / len(values) for name, values in results.items()}
+    print("\n平均")
+    for name, tps in means.items():
+        print(f"{name:20s}: {tps:.2f} tok/s")
+    gain = (means["fused+weights+argmax"] / means["fused+weights"] - 1) * 100
+    total = (means["fused+weights+argmax"] / means["upstream"] - 1) * 100
+    print(f"二段階argmaxの追加改善率: {gain:+.2f}%")
+    print(f"未改造版からの合計改善率: {total:+.2f}%")
+
+
 if __name__ == "__main__":
-    main3()
+    main4()

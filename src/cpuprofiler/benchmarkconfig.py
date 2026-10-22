@@ -23,5 +23,7 @@ class BenchmarkConfig:
     omp_places: str | None = None  # Noneならcpusの順序で作る
     omp_schedule: str = "dynamic,16"  # 出力を含む全matmul共通
     optimize_weights: bool = False  # Trueなら重みを2MiB境界に揃えTHPを要求
+    two_stage_argmax: bool = False  # -a 1、greedy生成用
+    group_size: int = 144  # -g、モデルのdimを割り切る値
     timeout: float = 300
     build: bool = True  # 実行前に現在のrun.cをコンパイルする

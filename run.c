@@ -236,17 +236,15 @@ void softmax(float* x, int size) {
     }
 }
 
+#include "src/classifier.h"
+
 void matmul(float* xout, float* x, float* w, int n, int d) {
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
     int i;
     #pragma omp parallel for private(i) schedule(runtime)
     for (i = 0; i < d; i++) {
-        float val = 0.0f;
-        for (int j = 0; j < n; j++) {
-            val += w[i * n + j] * x[j];
-        }
-        xout[i] = val;
+        xout[i] = dot_f32(w + (size_t)i * n, x, n);
     }
 }
 
@@ -370,7 +368,8 @@ float* forward(Transformer* transformer, int token, int pos) {
     rmsnorm(x, x, w->rms_final_weight, dim);
 
     // classifier into logits
-    matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+    if (cls.enabled) { classifier_int8(s->logits, x, w->wcls, p->dim, p->vocab_size); }
+    else { matmul(s->logits, x, w->wcls, p->dim, p->vocab_size); }
     return s->logits;
 }
 
@@ -914,6 +913,8 @@ void error_usage() {
     fprintf(stderr, "  -m <string> mode: generate|chat, default: generate\n");
     fprintf(stderr, "  -y <string> (optional) system prompt in chat mode\n");
     fprintf(stderr, "  -w <int>    optimize weights: 0=off (default) 1=aligned+hugepage\n");
+    fprintf(stderr, "  -a <int>    output layer: 0=fp32 (default) 1=int8 + fp32 argmax (-t 0)\n");
+    fprintf(stderr, "  -g <int>    int8 group size, divides dim, default 144\n");
     exit(EXIT_FAILURE);
 }
 
@@ -929,6 +930,7 @@ int main(int argc, char *argv[]) {
     unsigned long long rng_seed = 0; // seed rng with time by default
     char *mode = "generate";    // generate|chat
     char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
+    int classifier_mode = 0, group_size = 144;
     int optimize_weights = 0; // copy weights to aligned hugepage memory when enabled
 
     // poor man's C argparse so we can override the defaults above from the command line
@@ -947,6 +949,8 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'z') { tokenizer_path = argv[i + 1]; }
         else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
         else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
+        else if (argv[i][1] == 'a') { classifier_mode = atoi(argv[i + 1]); }
+        else if (argv[i][1] == 'g') { group_size = atoi(argv[i + 1]); }
         else if (argv[i][1] == 'w') { optimize_weights = atoi(argv[i + 1]); }
         else { error_usage(); }
     }
@@ -958,10 +962,24 @@ int main(int argc, char *argv[]) {
     if (steps < 0) steps = 0;
     if (optimize_weights != 0 && optimize_weights != 1) { error_usage(); }
 
+    if ((classifier_mode != 0 && classifier_mode != 1) || group_size <= 0) { error_usage(); }
+    if (classifier_mode && temperature != 0.0f) {
+        fprintf(stderr, "note: -a 1 needs -t 0; using the fp32 output layer\n");
+        classifier_mode = 0;
+    }
+
     // build the Transformer via the model .bin file
     Transformer transformer;
     build_transformer(&transformer, checkpoint_path);
     if (optimize_weights) { use_hugepages(&transformer); }
+    if (classifier_mode) {
+        if (transformer.config.dim % group_size != 0) {
+            fprintf(stderr, "-g %d must divide dim=%d\n", group_size, transformer.config.dim);
+            exit(EXIT_FAILURE);
+        }
+        setup_classifier(transformer.weights.wcls, transformer.config.dim,
+                         transformer.config.vocab_size, group_size, optimize_weights);
+    }
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
 
     // build the Tokenizer via the tokenizer .bin file
@@ -985,6 +1003,7 @@ int main(int argc, char *argv[]) {
     // memory and file handles cleanup
     free_sampler(&sampler);
     free_tokenizer(&tokenizer);
+    free_classifier();
     free_transformer(&transformer);
     return 0;
 }
