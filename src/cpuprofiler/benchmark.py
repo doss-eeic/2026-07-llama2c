@@ -37,8 +37,11 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class BenchmarkConfig:
-    cpus: tuple[int, ...]
-    threads: int
+    # 全体の cpu 指定（taskset）。body_cpus / cls_cpus を使うときは、指定しなかった区間がこれを使う。
+    # 省略すると body_cpus と cls_cpus を合わせたものになる
+    cpus: tuple[int, ...] = ()
+    # 全体のスレッド数（OMP_NUM_THREADS）。省略すると len(cpus)
+    threads: int = 0
 
     steps: int = 256
     temperature: float = 0.0
@@ -51,12 +54,39 @@ class BenchmarkConfig:
     output_threads: int = 8
     omp_schedule: str = "dynamic,128"
 
+    # 出力層以外のcpu指定（run.c の -B）。スレッド数は len(body_cpus)
+    body_cpus: tuple[int, ...] | None = None
+    # 出力層のcpu指定（run.c の -C）。スレッド数は len(cls_cpus)
+    cls_cpus: tuple[int, ...] | None = None
+
+    @property
+    def uses_sections(self) -> bool:
+        # 出力層とそれ以外で cpu を分けるか
+        return self.body_cpus is not None or self.cls_cpus is not None
+
+    @property
+    def all_cpus(self) -> tuple[int, ...]:
+        # taskset に渡す cpu
+        if self.cpus:
+            return self.cpus
+        merged = set(self.body_cpus or ()) | set(self.cls_cpus or ())
+        return tuple(sorted(merged))
+
+    @property
+    def all_threads(self) -> int:
+        # OMP_NUM_THREADS に渡すスレッド数
+        return self.threads if self.threads > 0 else len(self.all_cpus)
+
 
 @dataclass
 class BenchmarkResult:
     config: BenchmarkConfig
     tokens_per_second: float
     raw_stderr: str
+
+    # 区間ごとの時間 (ms/token)。区間タイマーのないバイナリでは None
+    body_ms_per_token: float | None = None  # 出力層以外
+    cls_ms_per_token: float | None = None   # 出力層
 
     @property
     def ms_per_token(self):
@@ -73,29 +103,41 @@ class BenchmarkRunner:
         self.model_path = Path(model_path).resolve()
 
     def run(self, config: BenchmarkConfig) -> BenchmarkResult:
-        if not config.cpus:
+        cpus = config.all_cpus
+        threads = config.all_threads
+
+        if not cpus:
             raise ValueError("CPU list must not be empty")
 
-        if config.threads < 1:
+        if threads < 1:
             raise ValueError("threads must be positive")
 
         if config.output_threads < 1:
             raise ValueError("output_threads must be positive")
 
+        for section in (config.body_cpus, config.cls_cpus):
+            if section is not None and not section:
+                raise ValueError("body_cpus / cls_cpus must not be empty")
+
         # OpenMPの環境変数
         env = os.environ.copy()
 
-        env["OMP_NUM_THREADS"] = str(config.threads)
+        env["OMP_NUM_THREADS"] = str(threads)
         env["OUTPUT_THREADS"] = str(config.output_threads)
         env["OMP_SCHEDULE"] = config.omp_schedule
         env["OMP_DYNAMIC"] = (
             "TRUE" if config.omp_dynamic else "FALSE"
         )
-        env["OMP_PROC_BIND"] = config.omp_proc_bind
-        env["OMP_PLACES"] = config.omp_places
+        if config.uses_sections:
+            # -B / -C では run.c がスレッドを cpu に固定するので、OpenMP には固定させない
+            env["OMP_PROC_BIND"] = "FALSE"
+            env.pop("OMP_PLACES", None)
+        else:
+            env["OMP_PROC_BIND"] = config.omp_proc_bind
+            env["OMP_PLACES"] = config.omp_places
 
         # CPU affinity
-        cpu_list = ",".join(map(str, config.cpus))
+        cpu_list = ",".join(map(str, cpus))
 
         command = [
             "taskset", "-c", cpu_list,
@@ -106,6 +148,12 @@ class BenchmarkRunner:
             "-s", str(config.seed),
             "-i", config.prompt
         ]
+
+        # 区間ごとの cpu 指定（指定した区間だけ渡す）
+        if config.body_cpus is not None:
+            command += ["-B", ",".join(map(str, config.body_cpus))]
+        if config.cls_cpus is not None:
+            command += ["-C", ",".join(map(str, config.cls_cpus))]
 
         result = subprocess.run(
             command,
@@ -128,10 +176,18 @@ class BenchmarkRunner:
                 + result.stderr
             )
 
+        # 区間タイマーの結果（出力層以外 / 出力層）を取得
+        section = re.search(
+            r"section ms/tok:\s*body=([\d.]+)\s+cls=([\d.]+)",
+            result.stderr
+        )
+
         return BenchmarkResult(
             config=config,
             tokens_per_second=float(match.group(1)),
-            raw_stderr=result.stderr
+            raw_stderr=result.stderr,
+            body_ms_per_token=float(section.group(1)) if section else None,
+            cls_ms_per_token=float(section.group(2)) if section else None
         )
 
 if __name__ == "__main__":
@@ -160,5 +216,16 @@ if __name__ == "__main__":
 
     print(result.tokens_per_second)
     print(result.ms_per_token)
+
+    # 出力層とそれ以外で cpu を分ける
+    config = BenchmarkConfig(
+        body_cpus=(0, 2),
+        cls_cpus=(4, 5, 6, 7)
+    )
+
+    result = runner.run(config)
+
+    print(result.tokens_per_second)
+    print(result.body_ms_per_token, result.cls_ms_per_token)
 
     
