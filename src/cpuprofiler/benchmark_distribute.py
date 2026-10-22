@@ -25,6 +25,8 @@ def project_path(path: Path) -> Path:
 
 def run(config: BenchmarkConfig) -> dict[str, float]:
     """1回測定し、設定・標準出力・標準エラー・集計をoutputへ保存する。"""
+    if config.output is None:
+        raise ValueError("output must be specified for saved benchmark results")
     available = os.sched_getaffinity(0)
     if not config.cpus or len(set(config.cpus)) != len(config.cpus):
         raise ValueError("cpus must contain distinct CPU IDs")

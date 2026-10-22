@@ -35,20 +35,10 @@ from pathlib import Path
 from dataclasses import dataclass
 
 
-@dataclass(frozen=True)
-class BenchmarkConfig:
-    cpus: tuple[int, ...]
-    threads: int
-
-    steps: int = 256
-    temperature: float = 0.0
-    seed: int = 42
-    prompt: str = "Once upon a time"
-
-    omp_dynamic: bool = False
-    omp_proc_bind: str = "TRUE"
-    omp_places: str = "threads"
-    omp_schedule: str = "dynamic,16"
+if __package__:
+    from .benchmarkconfig import BenchmarkConfig
+else:
+    from benchmarkconfig import BenchmarkConfig
 
 
 @dataclass
@@ -88,7 +78,7 @@ class BenchmarkRunner:
             "TRUE" if config.omp_dynamic else "FALSE"
         )
         env["OMP_PROC_BIND"] = config.omp_proc_bind
-        env["OMP_PLACES"] = config.omp_places
+        env["OMP_PLACES"] = config.omp_places or ",".join(f"{{{cpu}}}" for cpu in config.cpus)
 
         # CPU affinity
         cpu_list = ",".join(map(str, config.cpus))
@@ -192,9 +182,12 @@ def main2():
     config = BenchmarkConfig(
         cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10, 11),
         threads=10,
+        omp_schedule="dynamic,16",  # 出力を含む全matmul共通
         omp_proc_bind="close",
         omp_places="{0},{2},{4},{5},{6},{7},{8},{9},{10},{11}",
     )
+
+    print(f"threads={config.threads}, OMP_SCHEDULE={config.omp_schedule}")
 
     # 各バイナリをウォームアップ
     for runner in runners.values():
@@ -229,5 +222,4 @@ def main2():
     print(f"融合版の改善率: {gain:+.2f}%")
 
 if __name__ == "__main__":
-    # main2()
     main2()

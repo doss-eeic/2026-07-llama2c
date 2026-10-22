@@ -1,4 +1,4 @@
-"""benchmark_distributeへ渡す実行設定。"""
+"""benchmarkとbenchmark_distributeで共用する実行設定。"""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class BenchmarkConfig:
     cpus: tuple[int, ...]
     threads: int
-    output: Path
+    output: Path | None = None  # benchmark_distributeでは保存先を指定する
     binary: Path = ROOT / "build/run-fused"
     model: Path = ROOT / "build/stories15M.bin"
     tokenizer: Path = ROOT / "tokenizer.bin"
