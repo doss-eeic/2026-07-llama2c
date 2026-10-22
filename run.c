@@ -1,5 +1,9 @@
 /* Inference for Llama-2 Transformer model in pure C */
 
+// sched_setaffinity / cpu_set_t（-B / -C の CPU 固定）に必要
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+    #define _GNU_SOURCE
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -39,6 +43,118 @@ static int output_chunk = 128;
         #define CLS_VNNI 1
     #endif
 #endif
+// ----------------------------------------------------------------------------
+// CPU sections: 出力層とそれ以外で、使う CPU とスレッド数を分ける（-B / -C）
+//
+// taskset や OMP_PLACES はプロセス全体に効くので、区間ごとには変えられない。
+// そこで区間に入るときに OpenMP の各スレッドを sched_setaffinity で CPU に固定し直し、
+// 区間の中の parallel 領域は num_threads(section_threads) で同じスレッド数を使う。
+// 固定し直すのは区間が変わるときだけ（1 トークンあたり 2 回）。
+// -B も -C も指定しないときは何もしない（これまでと同じ動き）。
+// スレッド i が毎回同じ OS スレッドになる前提なので、OMP_PROC_BIND は FALSE にする。
+
+#ifdef _OPENMP
+    #include <omp.h>
+    #ifdef __linux__
+        #define SECTION_BIND 1
+        #include <sched.h>
+    #endif
+#endif
+
+#define MAX_SECTION_CPUS 256
+
+typedef enum { SEC_NONE = -1, SEC_BODY = 0, SEC_CLS = 1 } SectionId;
+
+typedef struct {
+    int cpus[MAX_SECTION_CPUS]; // スレッド i を cpus[i] に固定する
+    int n;                      // スレッド数。0 なら指定なし（起動時の CPU をすべて使う）
+} CpuSection;
+
+static int section_bind = 0;       // -B か -C が指定されたら 1
+static int section_cur = SEC_NONE; // 今どの区間の CPU に固定しているか
+#ifdef _OPENMP
+static int section_threads = 1;    // 今の区間のスレッド数（-B / -C を使うとき）
+
+// parallel 領域のスレッド数。-B / -C を使うときは区間のスレッド数、
+// 使わないときは omp_set_num_threads で決めた数（出力層では OUTPUT_THREADS）
+static inline int section_num_threads(void) {
+    return section_bind ? section_threads : omp_get_max_threads();
+}
+#endif
+#ifdef SECTION_BIND
+static CpuSection cpu_sections[2];    // [SEC_BODY], [SEC_CLS]
+static cpu_set_t section_default_set; // 起動時の CPU（taskset で指定したもの）
+
+// "0,2,4-7" の形の CPU リストを読む
+static void parse_cpu_list(const char* s, CpuSection* sec) {
+    sec->n = 0;
+    const char* p = s;
+    while (*p) {
+        char* end;
+        long a = strtol(p, &end, 10);
+        long b = a;
+        if (end == p) { goto bad; }
+        if (*end == '-') {
+            p = end + 1;
+            b = strtol(p, &end, 10);
+            if (end == p || b < a) { goto bad; }
+        }
+        for (long c = a; c <= b; c++) {
+            if (c < 0 || c >= 1024 || sec->n >= MAX_SECTION_CPUS) { goto bad; }
+            sec->cpus[sec->n++] = (int)c;
+        }
+        if (*end == ',') { end++; } else if (*end != '\0') { goto bad; }
+        p = end;
+    }
+    if (sec->n > 0) { return; }
+bad:
+    fprintf(stderr, "invalid CPU list: %s\n", s);
+    exit(EXIT_FAILURE);
+}
+#endif
+
+static void setup_sections(const char* body_cpus, const char* cls_cpus) {
+#ifdef _OPENMP
+    section_threads = omp_get_max_threads();
+#endif
+#ifdef SECTION_BIND
+    if (body_cpus == NULL && cls_cpus == NULL) { return; }
+    if (body_cpus != NULL) { parse_cpu_list(body_cpus, &cpu_sections[SEC_BODY]); }
+    if (cls_cpus != NULL) { parse_cpu_list(cls_cpus, &cpu_sections[SEC_CLS]); }
+    // OMP_PROC_BIND が有効だと、libgomp がスレッドを並べ替えて固定がずれる
+    if (omp_get_proc_bind() != omp_proc_bind_false) {
+        fprintf(stderr, "-B / -C need OMP_PROC_BIND=FALSE\n");
+        exit(EXIT_FAILURE);
+    }
+    omp_set_dynamic(0); // スレッド数を勝手に減らされないようにする
+    sched_getaffinity(0, sizeof(section_default_set), &section_default_set);
+    section_bind = 1;
+#else
+    if (body_cpus != NULL || cls_cpus != NULL) {
+        fprintf(stderr, "warning: -B / -C need Linux + OpenMP, ignored\n");
+    }
+#endif
+}
+
+// 区間に入る。前と違う区間なら、各スレッドをその区間の CPU に固定し直す
+static void enter_section(SectionId id) {
+    if (!section_bind || id == section_cur) { return; }
+    section_cur = id;
+#ifdef SECTION_BIND
+    const CpuSection* sec = &cpu_sections[id];
+    section_threads = sec->n > 0 ? sec->n : omp_get_max_threads();
+    #pragma omp parallel num_threads(section_threads)
+    {
+        cpu_set_t set = section_default_set;
+        if (sec->n > 0) {
+            CPU_ZERO(&set);
+            CPU_SET(sec->cpus[omp_get_thread_num()], &set);
+        }
+        sched_setaffinity(0, sizeof(set), &set);
+    }
+#endif
+}
+
 // ----------------------------------------------------------------------------
 // Transformer model
 
@@ -284,7 +400,7 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
     int i;
-    #pragma omp parallel for private(i) schedule(runtime)
+    #pragma omp parallel for private(i) schedule(runtime) num_threads(section_num_threads())
     for (i = 0; i < d; i++) {
         float val = 0.0f;
         for (int j = 0; j < n; j++) {
@@ -516,7 +632,7 @@ static void cls_rescore(Transformer* t, float* xout, float* x, int n_blocks) {
     float lo = c->blk_lo[0];
     for (int b = 1; b < n_blocks; b++) { lo = fmaxf(lo, c->blk_lo[b]); }
     int b;
-    #pragma omp parallel for private(b)
+    #pragma omp parallel for private(b) num_threads(section_num_threads())
     for (b = 0; b < n_blocks; b++) {
         int r0 = b * CLS_BLOCK;
         int r1 = r0 + CLS_BLOCK < d ? r0 + CLS_BLOCK : d;
@@ -553,7 +669,7 @@ static void classifier_matmul(Transformer* t, float* xout, float* x) {
     ClsRowsFn rows = cls_rows_fn(c->isa);
     int n_blocks = (d + CLS_BLOCK - 1) / CLS_BLOCK;
     int b;
-    #pragma omp parallel for private(b)
+    #pragma omp parallel for private(b) num_threads(section_num_threads())
     for (b = 0; b < n_blocks; b++) {
         int r0 = b * CLS_BLOCK;
         int r1 = r0 + CLS_BLOCK < d ? r0 + CLS_BLOCK : d;
@@ -565,7 +681,28 @@ static void classifier_matmul(Transformer* t, float* xout, float* x) {
     cls_rescore(t, xout, x, n_blocks);
 }
 
+// ----------------------------------------------------------------------------
+// 区間タイマー：forward() を「出力層以外」と「出力層」に分けて計測する。
+// 1 トークンは ms 程度なので ns 単位で積算し、generate() の最後にまとめて出す。
+// tok/s と同じく最初のトークン（pos == 0）は計測から外す。
+
+typedef struct {
+    double body_ns; // 埋め込み + 全レイヤー + 最終 rmsnorm
+    double cls_ns;  // 出力層（classifier_matmul）
+    int n;          // 計測したトークン数
+} SectionTimer;
+
+static SectionTimer section_timer = {0};
+
+static inline double time_in_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1e9 + ts.tv_nsec;
+}
+
 float* forward(Transformer* transformer, int token, int pos) {
+    double t_start = time_in_ns();
+    enter_section(SEC_BODY); // 固定し直す時間も body に含める
 
     // a few convenience variables
     Config* p = &transformer->config;
@@ -617,7 +754,7 @@ float* forward(Transformer* transformer, int token, int pos) {
 
         // multihead attention. iterate over all heads
         int h;
-        #pragma omp parallel for private(h)
+        #pragma omp parallel for private(h) num_threads(section_num_threads())
         for (h = 0; h < p->n_heads; h++) {
             // get the query vector for this head
             float* q = s->q + h * head_size;
@@ -693,6 +830,9 @@ float* forward(Transformer* transformer, int token, int pos) {
     // final rmsnorm
     rmsnorm(x, x, w->rms_final_weight, dim);
 
+    // output layer, most expensive part of the model
+    double t_cls = time_in_ns();
+
     #if defined _OPENMP
     // 現在の設定を保存
     int previous_threads = omp_get_max_threads();
@@ -709,6 +849,8 @@ float* forward(Transformer* transformer, int token, int pos) {
     #endif
 
     // classifier into logits
+    // -C がないときは、上で切り替えた OUTPUT_THREADS のスレッド数を使う
+    enter_section(SEC_CLS); // 固定し直す時間も cls に含める
     classifier_matmul(transformer, s->logits, x);
 
     // 元の設定に戻す
@@ -717,6 +859,12 @@ float* forward(Transformer* transformer, int token, int pos) {
     if (change_threads) omp_set_num_threads(previous_threads);
     #endif
 
+    double t_end = time_in_ns();
+    if (pos > 0) {
+        section_timer.body_ns += t_cls - t_start;
+        section_timer.cls_ns += t_end - t_cls;
+        section_timer.n++;
+    }
     return s->logits;
 }
 
@@ -1137,6 +1285,13 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         long end = time_in_ms();
         fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
     }
+    // report per-section time (ms/token) measured in forward()
+    if (section_timer.n > 0) {
+        fprintf(stderr, "section ms/tok: body=%f cls=%f (n=%d)\n",
+                section_timer.body_ns / section_timer.n / 1e6,
+                section_timer.cls_ns / section_timer.n / 1e6,
+                section_timer.n);
+    }
 
     free(prompt_tokens);
 }
@@ -1261,6 +1416,10 @@ void error_usage() {
     fprintf(stderr, "  -y <string> (optional) system prompt in chat mode\n");
     fprintf(stderr, "  -q <string> output layer: fp32|int8-exact, default: fp32\n");
     fprintf(stderr, "              int8-exact: int8 + fp32 rescoring, same output as fp32 (needs -t 0)\n");
+    fprintf(stderr, "  -B <string> (optional) CPUs for all but the output layer, e.g. 0,2,4-7 (1 thread per CPU)\n");
+    fprintf(stderr, "  -C <string> (optional) CPUs for the output layer, same format as -B\n");
+    fprintf(stderr, "              -B / -C need OMP_PROC_BIND=FALSE; an omitted one uses all CPUs at startup\n");
+    fprintf(stderr, "              (threads: OMP_NUM_THREADS for -B, OUTPUT_THREADS for -C); -C overrides OUTPUT_THREADS\n");
     exit(EXIT_FAILURE);
 }
 
@@ -1309,6 +1468,8 @@ int main(int argc, char *argv[]) {
     char *mode = "generate";    // generate|chat
     char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
     char *cls_name = "fp32";    // output layer: fp32|int8-exact
+    char *body_cpus = NULL;     // optional CPU affinity for body matmuls
+    char *cls_cpus = NULL;      // optional CPU affinity for classifier matmuls
 
     // poor man's C argparse so we can override the defaults above from the command line
     if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
@@ -1327,6 +1488,8 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
         else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
         else if (argv[i][1] == 'q') { cls_name = argv[i + 1]; }
+        else if (argv[i][1] == 'B') { body_cpus = argv[i + 1]; }
+        else if (argv[i][1] == 'C') { cls_cpus = argv[i + 1]; }
         else { error_usage(); }
     }
 
@@ -1344,6 +1507,8 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "-q int8-exact requires greedy decoding (-t 0)\n");
         error_usage();
     }
+
+    setup_sections(body_cpus, cls_cpus);
 
     // build the Transformer via the model .bin file
     Transformer transformer;
