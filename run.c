@@ -52,6 +52,11 @@ static int output_chunk = 128;
 // 固定し直すのは区間が変わるときだけ（1 トークンあたり 2 回）。
 // -B も -C も指定しないときは何もしない（これまでと同じ動き）。
 // スレッド i が毎回同じ OS スレッドになる前提なので、OMP_PROC_BIND は FALSE にする。
+//
+// libgomp は parallel 領域のスレッド数が減ると余ったスレッドを終了させ、増えると作り直す。
+// 区間でスレッド数が違うと 1 トークンごとにこれが起きるので、SECTION_TEAM=fixed のときは
+// parallel 領域のスレッド数を 2 つの区間の多い方（section_team）に揃え、
+// 先頭の section_threads 本だけが仕事をする。残りのスレッドはもう一方の区間の CPU に固定したまま待つ。
 
 #ifdef _OPENMP
     #include <omp.h>
@@ -74,12 +79,27 @@ static int section_bind = 0;       // -B か -C が指定されたら 1
 static int section_cur = SEC_NONE; // 今どの区間の CPU に固定しているか
 #ifdef _OPENMP
 static int section_threads = 1;    // 今の区間のスレッド数（-B / -C を使うとき）
+static int section_fixed = 0;      // SECTION_TEAM=fixed なら 1（-B / -C を使うときだけ）
+static int section_team = 1;       // section_fixed のときの parallel 領域のスレッド数
 
-// parallel 領域のスレッド数。-B / -C を使うときは区間のスレッド数、
+// parallel 領域のスレッド数。-B / -C を使うときは区間のスレッド数（section_fixed なら section_team）、
 // 使わないときは omp_set_num_threads で決めた数（出力層では OUTPUT_THREADS）
 static inline int section_num_threads(void) {
+    if (section_fixed) { return section_team; }
     return section_bind ? section_threads : omp_get_max_threads();
 }
+
+// parallel 領域の中で、このスレッドが受け持つ [*k0, *k1) を返す。n 個を仕事をするスレッドで均等に分ける。
+// section_fixed のときは先頭の section_threads 本だけが仕事をし、残りは何もしない（*k0 == *k1）
+static inline void section_range(int n, int* k0, int* k1) {
+    int tid = omp_get_thread_num();
+    int nt = section_fixed ? section_threads : omp_get_num_threads();
+    if (tid >= nt) { *k0 = *k1 = n; return; }
+    *k0 = (int)((long)n * tid / nt);
+    *k1 = (int)((long)n * (tid + 1) / nt);
+}
+#else
+static inline void section_range(int n, int* k0, int* k1) { *k0 = 0; *k1 = n; }
 #endif
 #ifdef SECTION_BIND
 static CpuSection cpu_sections[2];    // [SEC_BODY], [SEC_CLS]
@@ -129,6 +149,18 @@ static void setup_sections(const char* body_cpus, const char* cls_cpus) {
     omp_set_dynamic(0); // スレッド数を勝手に減らされないようにする
     sched_getaffinity(0, sizeof(section_default_set), &section_default_set);
     section_bind = 1;
+
+    const char* team = getenv("SECTION_TEAM");
+    if (team != NULL && strcmp(team, "fixed") == 0) {
+        // 指定のない区間のスレッド数は enter_section() と同じ（body は OMP_NUM_THREADS、出力層は OUTPUT_THREADS）
+        int n_body = cpu_sections[SEC_BODY].n > 0 ? cpu_sections[SEC_BODY].n : omp_get_max_threads();
+        int n_cls = cpu_sections[SEC_CLS].n > 0 ? cpu_sections[SEC_CLS].n : output_threads;
+        section_team = n_body > n_cls ? n_body : n_cls;
+        section_fixed = 1;
+    } else if (team != NULL && strcmp(team, "resize") != 0) {
+        fprintf(stderr, "Invalid SECTION_TEAM (use fixed or resize)\n");
+        exit(EXIT_FAILURE);
+    }
 #else
     if (body_cpus != NULL || cls_cpus != NULL) {
         fprintf(stderr, "warning: -B / -C need Linux + OpenMP, ignored\n");
@@ -142,13 +174,17 @@ static void enter_section(SectionId id) {
     section_cur = id;
 #ifdef SECTION_BIND
     const CpuSection* sec = &cpu_sections[id];
+    const CpuSection* other = &cpu_sections[1 - id];
     section_threads = sec->n > 0 ? sec->n : omp_get_max_threads();
-    #pragma omp parallel num_threads(section_threads)
+    #pragma omp parallel num_threads(section_num_threads())
     {
+        // 仕事をしないスレッド（section_fixed のときだけ）は、もう一方の区間の CPU に固定する
+        int tid = omp_get_thread_num();
+        const CpuSection* s = tid < section_threads ? sec : other;
         cpu_set_t set = section_default_set;
-        if (sec->n > 0) {
+        if (s->n > 0) {
             CPU_ZERO(&set);
-            CPU_SET(sec->cpus[omp_get_thread_num()], &set);
+            CPU_SET(s->cpus[tid], &set);
         }
         sched_setaffinity(0, sizeof(set), &set);
     }
@@ -400,6 +436,24 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
     int i;
+#ifdef _OPENMP
+    if (section_fixed) {
+        // スレッドの一部だけが仕事をするので omp for は使えない。行を均等に分ける（schedule は効かない）
+        #pragma omp parallel num_threads(section_team)
+        {
+            int i0, i1;
+            section_range(d, &i0, &i1);
+            for (int i = i0; i < i1; i++) {
+                float val = 0.0f;
+                for (int j = 0; j < n; j++) {
+                    val += w[i * n + j] * x[j];
+                }
+                xout[i] = val;
+            }
+        }
+        return;
+    }
+#endif
     #pragma omp parallel for private(i) schedule(runtime) num_threads(section_num_threads())
     for (i = 0; i < d; i++) {
         float val = 0.0f;
@@ -631,23 +685,26 @@ static void cls_rescore(Transformer* t, float* xout, float* x, int n_blocks) {
     float* w = t->weights.wcls;
     float lo = c->blk_lo[0];
     for (int b = 1; b < n_blocks; b++) { lo = fmaxf(lo, c->blk_lo[b]); }
-    int b;
-    #pragma omp parallel for private(b) num_threads(section_num_threads())
-    for (b = 0; b < n_blocks; b++) {
-        int r0 = b * CLS_BLOCK;
-        int r1 = r0 + CLS_BLOCK < d ? r0 + CLS_BLOCK : d;
-        int cand = 0;
-        for (int i = r0; i < r1; i++) {
-            if (xout[i] + c->bound[i] < lo) { continue; }
-            // matmul と同じ形のループ（足し算の順番を揃え、結果のビットを fp32 の matmul と同じにする）
-            float val = 0.0f;
-            for (int j = 0; j < n; j++) {
-                val += w[i * n + j] * x[j];
+    #pragma omp parallel num_threads(section_num_threads())
+    {
+        int b0, b1;
+        section_range(n_blocks, &b0, &b1);
+        for (int b = b0; b < b1; b++) {
+            int r0 = b * CLS_BLOCK;
+            int r1 = r0 + CLS_BLOCK < d ? r0 + CLS_BLOCK : d;
+            int cand = 0;
+            for (int i = r0; i < r1; i++) {
+                if (xout[i] + c->bound[i] < lo) { continue; }
+                // matmul と同じ形のループ（足し算の順番を揃え、結果のビットを fp32 の matmul と同じにする）
+                float val = 0.0f;
+                for (int j = 0; j < n; j++) {
+                    val += w[i * n + j] * x[j];
+                }
+                xout[i] = val;
+                cand++;
             }
-            xout[i] = val;
-            cand++;
+            c->blk_cand[b] = cand;
         }
-        c->blk_cand[b] = cand;
     }
     int total = 0;
     for (int k = 0; k < n_blocks; k++) { total += c->blk_cand[k]; }
@@ -668,15 +725,18 @@ static void classifier_matmul(Transformer* t, float* xout, float* x) {
     cls_quantize_x(c, x, n);
     ClsRowsFn rows = cls_rows_fn(c->isa);
     int n_blocks = (d + CLS_BLOCK - 1) / CLS_BLOCK;
-    int b;
-    #pragma omp parallel for private(b) num_threads(section_num_threads())
-    for (b = 0; b < n_blocks; b++) {
-        int r0 = b * CLS_BLOCK;
-        int r1 = r0 + CLS_BLOCK < d ? r0 + CLS_BLOCK : d;
-        rows(xout, c, n, r0, r1);
-        float lo = xout[r0] - c->bound[r0];
-        for (int i = r0 + 1; i < r1; i++) { lo = fmaxf(lo, xout[i] - c->bound[i]); }
-        c->blk_lo[b] = lo;
+    #pragma omp parallel num_threads(section_num_threads())
+    {
+        int b0, b1;
+        section_range(n_blocks, &b0, &b1);
+        for (int b = b0; b < b1; b++) {
+            int r0 = b * CLS_BLOCK;
+            int r1 = r0 + CLS_BLOCK < d ? r0 + CLS_BLOCK : d;
+            rows(xout, c, n, r0, r1);
+            float lo = xout[r0] - c->bound[r0];
+            for (int i = r0 + 1; i < r1; i++) { lo = fmaxf(lo, xout[i] - c->bound[i]); }
+            c->blk_lo[b] = lo;
+        }
     }
     cls_rescore(t, xout, x, n_blocks);
 }
@@ -753,41 +813,44 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // multihead attention. iterate over all heads
-        int h;
-        #pragma omp parallel for private(h) num_threads(section_num_threads())
-        for (h = 0; h < p->n_heads; h++) {
-            // get the query vector for this head
-            float* q = s->q + h * head_size;
-            // attention scores for this head
-            float* att = s->att + h * p->seq_len;
-            // iterate over all timesteps, including the current one
-            for (int t = 0; t <= pos; t++) {
-                // get the key vector for this head and at this timestep
-                float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // calculate the attention score as the dot product of q and k
-                float score = 0.0f;
-                for (int i = 0; i < head_size; i++) {
-                    score += q[i] * k[i];
+        #pragma omp parallel num_threads(section_num_threads())
+        {
+            int h0, h1;
+            section_range(p->n_heads, &h0, &h1);
+            for (int h = h0; h < h1; h++) {
+                // get the query vector for this head
+                float* q = s->q + h * head_size;
+                // attention scores for this head
+                float* att = s->att + h * p->seq_len;
+                // iterate over all timesteps, including the current one
+                for (int t = 0; t <= pos; t++) {
+                    // get the key vector for this head and at this timestep
+                    float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+                    // calculate the attention score as the dot product of q and k
+                    float score = 0.0f;
+                    for (int i = 0; i < head_size; i++) {
+                        score += q[i] * k[i];
+                    }
+                    score /= sqrtf(head_size);
+                    // save the score to the attention buffer
+                    att[t] = score;
                 }
-                score /= sqrtf(head_size);
-                // save the score to the attention buffer
-                att[t] = score;
-            }
 
-            // softmax the scores to get attention weights, from 0..pos inclusively
-            softmax(att, pos + 1);
+                // softmax the scores to get attention weights, from 0..pos inclusively
+                softmax(att, pos + 1);
 
-            // weighted sum of the values, store back into xb
-            float* xb = s->xb + h * head_size;
-            memset(xb, 0, head_size * sizeof(float));
-            for (int t = 0; t <= pos; t++) {
-                // get the value vector for this head and at this timestep
-                float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // get the attention weight for this timestep
-                float a = att[t];
-                // accumulate the weighted value into xb
-                for (int i = 0; i < head_size; i++) {
-                    xb[i] += a * v[i];
+                // weighted sum of the values, store back into xb
+                float* xb = s->xb + h * head_size;
+                memset(xb, 0, head_size * sizeof(float));
+                for (int t = 0; t <= pos; t++) {
+                    // get the value vector for this head and at this timestep
+                    float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+                    // get the attention weight for this timestep
+                    float a = att[t];
+                    // accumulate the weighted value into xb
+                    for (int i = 0; i < head_size; i++) {
+                        xb[i] += a * v[i];
+                    }
                 }
             }
         }
@@ -1420,6 +1483,7 @@ void error_usage() {
     fprintf(stderr, "  -C <string> (optional) CPUs for the output layer, same format as -B\n");
     fprintf(stderr, "              -B / -C need OMP_PROC_BIND=FALSE; an omitted one uses all CPUs at startup\n");
     fprintf(stderr, "              (threads: OMP_NUM_THREADS for -B, OUTPUT_THREADS for -C); -C overrides OUTPUT_THREADS\n");
+    fprintf(stderr, "              SECTION_TEAM=fixed keeps the larger thread count in both sections (default: resize)\n");
     exit(EXIT_FAILURE);
 }
 
