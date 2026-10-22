@@ -52,3 +52,6 @@ Thumbs.db
 # Keep this exception after extension-based ignore rules (e.g. *.exe).
 !/build/
 !/build/**
+
+# cpuprofiler の結果（uv run cpuprofiler beam / split の出力）
+/src/cpuprofiler/output/
