@@ -11,7 +11,7 @@ class BenchmarkConfig:
     cpus: tuple[int, ...]
     threads: int
     output: Path
-    binary: Path = ROOT / "build/run-omp"
+    binary: Path = ROOT / "build/run-fused"
     model: Path = ROOT / "build/stories15M.bin"
     tokenizer: Path = ROOT / "tokenizer.bin"
     steps: int = 256
@@ -21,9 +21,5 @@ class BenchmarkConfig:
     omp_dynamic: bool = False
     omp_proc_bind: str = "close"
     omp_places: str | None = None  # Noneならcpusの順序で作る
-    omp_schedule: str = "static"  # 通常部分用
-    output_threads: int = 8
-    output_schedule: str = "dynamic"
-    output_chunk: int = 128  # staticで0ならOpenMP既定の分割
     timeout: float = 300
     build: bool = True  # 実行前に現在のrun.cをコンパイルする

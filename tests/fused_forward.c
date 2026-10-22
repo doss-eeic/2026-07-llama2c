@@ -19,9 +19,6 @@ int main(int argc, char **argv) {
     }
     for (int i = 0; i < t.config.dim; i++) t.weights.rms_final_weight[i] = 1.0f;
     malloc_run_state(&t.state, &t.config);
-#ifdef _OPENMP
-    output_threads = omp_get_max_threads();
-#endif
     for (int repeat = 0; repeat < 3; repeat++) {
         for (int pos = 0; pos < t.config.seq_len; pos++) {
             float *logits = forward(&t, (pos * 7 + repeat) % t.config.vocab_size, pos);

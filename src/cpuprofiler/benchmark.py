@@ -6,7 +6,7 @@ def test_benchmark():
     result = subprocess.run(
         [
             "taskset", "-c", "4",
-            "./build/run-omp", "./build/stories15M.bin",
+            "./build/run-fused", "./build/stories15M.bin",
             "-n", "256",
             "-t", "0",
             "-s", "42",
@@ -48,8 +48,6 @@ class BenchmarkConfig:
     omp_dynamic: bool = False
     omp_proc_bind: str = "TRUE"
     omp_places: str = "threads"
-    output_threads: int = 8
-    omp_schedule: str = "dynamic,128"
 
 
 @dataclass
@@ -66,7 +64,7 @@ class BenchmarkResult:
 class BenchmarkRunner:
     def __init__(
         self,
-        binary_path: str = "./build/run-omp",
+        binary_path: str = "./build/run-fused",
         model_path: str = "./build/stories15M.bin"
     ):
         self.binary_path = Path(binary_path).resolve()
@@ -79,15 +77,11 @@ class BenchmarkRunner:
         if config.threads < 1:
             raise ValueError("threads must be positive")
 
-        if config.output_threads < 1:
-            raise ValueError("output_threads must be positive")
-
         # OpenMPの環境変数
-        env = os.environ.copy()
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith(("OMP_", "GOMP_", "OUTPUT_"))}
 
         env["OMP_NUM_THREADS"] = str(config.threads)
-        env["OUTPUT_THREADS"] = str(config.output_threads)
-        env["OMP_SCHEDULE"] = config.omp_schedule
         env["OMP_DYNAMIC"] = (
             "TRUE" if config.omp_dynamic else "FALSE"
         )
@@ -134,13 +128,12 @@ class BenchmarkRunner:
             raw_stderr=result.stderr
         )
 
-if __name__ == "__main__":
+def main():
     runner = BenchmarkRunner()
-
+    print("==0,1,2,3,4,5,8,9を4threads==")
     config = BenchmarkConfig(
         cpus=(0, 1, 2, 3, 4, 5, 8, 9),
         threads=4,
-        output_threads=8,
         omp_proc_bind="close",
         omp_places="{0},{1},{2},{3},{4},{5},{8},{9}"
     )
@@ -153,7 +146,6 @@ if __name__ == "__main__":
     config = BenchmarkConfig(
         cpus=(0, 1),
         threads=2,
-        output_threads=2
     )
 
     result = runner.run(config)
@@ -161,4 +153,54 @@ if __name__ == "__main__":
     print(result.tokens_per_second)
     print(result.ms_per_token)
 
-    
+
+def main2():
+    #ここで，ffn,qkvの最適化のベンチマーク比較をする。
+    runners = {
+        "upstream": BenchmarkRunner(binary_path="./build/run-upstream"), #これが未改造
+        "fused": BenchmarkRunner(binary_path="./build/run-fused"), #これがffn,qkvの融合，並列実行版
+    }
+
+    # 層内・出力層とも同じ10スレッドで比較
+    config = BenchmarkConfig(
+        cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10, 11),
+        threads=10,
+        omp_proc_bind="close",
+        omp_places="{0},{2},{4},{5},{6},{7},{8},{9},{10},{11}",
+    )
+
+    # 各バイナリをウォームアップ
+    for runner in runners.values():
+        runner.run(config)
+
+    results = {name: [] for name in runners}
+
+    # 実行順を交互にして10回ずつ測定
+    for repeat in range(10):
+        order = (
+            ("upstream", "fused")
+            if repeat % 2 == 0
+            else ("fused", "upstream")
+        )
+
+        for name in order:
+            result = runners[name].run(config)
+            results[name].append(result.tokens_per_second)
+            print(f"{repeat + 1:02d} {name:8s}: "
+                  f"{result.tokens_per_second:.2f} tok/s")
+
+    means = {
+        name: sum(values) / len(values)
+        for name, values in results.items()
+    }
+
+    print("\n平均")
+    for name, tps in means.items():
+        print(f"{name:8s}: {tps:.2f} tok/s")
+
+    gain = (means["fused"] / means["upstream"] - 1) * 100
+    print(f"融合版の改善率: {gain:+.2f}%")
+
+if __name__ == "__main__":
+    # main2()
+    main()

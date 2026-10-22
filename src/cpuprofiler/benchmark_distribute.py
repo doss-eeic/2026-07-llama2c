@@ -32,12 +32,6 @@ def run(config: BenchmarkConfig) -> dict[str, float]:
         raise ValueError(f"cpus must be available in current affinity: {sorted(available)}")
     if config.threads < 1 or config.threads > len(config.cpus):
         raise ValueError("threads must be between 1 and the number of CPUs")
-    if config.output_threads < 1 or config.output_threads > len(config.cpus):
-        raise ValueError("output_threads must be between 1 and the number of CPUs")
-    if config.output_schedule not in ("static", "dynamic"):
-        raise ValueError("output_schedule must be static or dynamic")
-    if not 0 <= config.output_chunk <= 2147483647:
-        raise ValueError("output_chunk must be between 0 and 2147483647")
     if config.steps < 2 or config.timeout <= 0:
         raise ValueError("steps must be at least 2 and timeout must be positive")
 
@@ -63,16 +57,13 @@ def run(config: BenchmarkConfig) -> dict[str, float]:
     if not binary.is_file():
         raise FileNotFoundError(binary)
 
-    env = os.environ.copy()
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("OMP_", "GOMP_", "OUTPUT_"))}
     env.update({
         "OMP_NUM_THREADS": str(config.threads),
-        "OMP_SCHEDULE": config.omp_schedule,
         "OMP_DYNAMIC": "TRUE" if config.omp_dynamic else "FALSE",
         "OMP_PROC_BIND": config.omp_proc_bind,
         "OMP_PLACES": config.omp_places or ",".join(f"{{{cpu}}}" for cpu in config.cpus),
-        "OUTPUT_THREADS": str(config.output_threads),
-        "OUTPUT_SCHEDULE": config.output_schedule,
-        "OUTPUT_CHUNK": str(config.output_chunk),
     })
     command = [
         "taskset", "-c", ",".join(map(str, config.cpus)), str(binary), str(model),
@@ -95,35 +86,16 @@ def run(config: BenchmarkConfig) -> dict[str, float]:
 
 def main():
     # ここで測定条件を編集する。環境変数の設定や手動ビルドは不要。
-    cpus = (0, 1, 2, 3, 4, 5, 8, 9)
     output_root = ROOT / "results" / datetime.now().strftime("distribute_%Y%m%d_%H%M%S_%f")
     configs = {
-        "A_fixed4": BenchmarkConfig(cpus=cpus, threads=4, output=output_root / "A_fixed4",
-                                    output_threads=4, output_schedule="static", output_chunk=0),
-        "B_switch4_8": BenchmarkConfig(cpus=cpus, threads=4, output=output_root / "B_switch4_8"),
-        "C_fixed8": BenchmarkConfig(cpus=cpus, threads=8, output=output_root / "C_fixed8",
-                                    output_threads=8, output_schedule="static", output_chunk=0),
-        "D_dynamic8": BenchmarkConfig(cpus=cpus, threads=8, output=output_root / "D_dynamic8"),
-        "P4": BenchmarkConfig(
-            cpus=(0, 1, 2, 3),
-            threads=4,
-            omp_proc_bind="close",
-            omp_schedule="static",
-            output_threads=4,
-            output_schedule="static",
-            output_chunk=0,
-            output=output_root / "P4",
-        ),
-        "P4_E4": BenchmarkConfig(
-            cpus=(0, 1, 2, 3, 4, 5, 8, 9),
-            threads=8,
-            omp_proc_bind="close",
-            omp_schedule="static",
-            output_threads=8,
-            output_schedule="static",
-            output_chunk=0,
-            output=output_root / "P4_E4",
-        ),
+        "P4": BenchmarkConfig(cpus=(0, 2, 1, 3), threads=4,
+                              output=output_root / "P4"),
+        "P4_E4": BenchmarkConfig(cpus=(0, 2, 1, 3, 4, 5, 8, 9), threads=8,
+                                 output=output_root / "P4_E4"),
+        "P2_E8": BenchmarkConfig(cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10, 11), threads=10,
+                                 output=output_root / "P2_E8"),
+        "All14": BenchmarkConfig(cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10, 11, 1, 3, 12, 13),
+                                 threads=14, output=output_root / "All14"),
     }
     repeat = 10
     print(f"Results: {output_root}", flush=True)
@@ -147,9 +119,7 @@ def main():
         rates[name].append(summary["tokens_per_second"])
         rows.append({"config": name, "run": i + 1,
                      "cpus": ",".join(map(str, config.cpus)), "threads": config.threads,
-                     "schedule": config.omp_schedule, "output_threads": config.output_threads,
-                     "output_schedule": config.output_schedule,
-                     "output_chunk": config.output_chunk, **summary})
+                     **summary})
         print(f"{name} run {i + 1}: {summary['tokens_per_second']:.2f} tokens/s", flush=True)
         with (output_root / "summary.csv").open("w", newline="") as file:
             writer = csv.DictWriter(file, fieldnames=list(rows[0]))
