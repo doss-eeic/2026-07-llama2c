@@ -175,7 +175,8 @@ class AutoTuner:
         warmup → キャリブレーション(calibratedが無いとき) → CPU探索 → 補助設定調整 → 独立確認。
         追加後の配置はDomainClassで正規化し、同型の配置は1回だけ測る。
         キャリブレーションを含め、同じ構成の結果は再利用する(warmupと独立確認は毎回測る)。
-        補助設定(OpenMPのschedule/wait/proc_bind、g)はCPU探索の上位top_k配置だけで探す。
+        補助設定(OpenMPのschedule/wait/spincount/proc_bind/dynamic/places、g)は、最良配置で項目ごとに
+        上位値へ絞り込んでから、CPU探索の上位top_k配置で組み合わせを探す。
         """
         started, history_start = time.perf_counter(), len(self.history)
         search = LayoutSearch(self, config, top_k, repeats, seed)
@@ -191,7 +192,7 @@ class AutoTuner:
                             "measurements": len(self.history) - history_start,
                             "exploration": len(search.measured), "baseline": search.baseline,
                             "confirmed": results, "calibrated": calibrated, "stages": search.stages,
-                            "tuned": search.tuned}
+                            "tuned": search.tuned, "screened": search.screened}
         return results[0]
 
     def search(self, args="Sample"):
@@ -361,8 +362,10 @@ class LayoutSearch:
     measuredは探索で使った結果(BenchmarkConfig→結果、キャッシュから再利用したものを含む)、layoutsはCPU配置→ms/token、
     stagesはスレッド数ごとの(測定した配置→ms/token)、tunedは上位配置ごとの補助設定調整後の構成。
     """
-    # CPU配置が決まった後に試す補助設定。座標降下でこの順に1項目ずつ最良値に固定し、
-    # 1周で何か変わればTUNE_PASSES周まで繰り返す(scheduleとg、waitとspincountの相互作用を拾う)。
+    # CPU配置が決まった後に試す補助設定。
+    # 1. スクリーニング: CPU探索の最良配置で、既定設定から1項目だけ変えて全候補を測り、項目ごとに上位TOP_VALUES個を残す。
+    # 2. 組み合わせ: 上位top_k配置それぞれで、残した値だけを座標降下で1項目ずつ最良値に固定する。
+    #    1周で何か変わればTUNE_PASSES周まで繰り返す(scheduleとg、waitとspincountの相互作用を拾う)。
     RUNTIME_OPTIONS = {
         "omp_schedule": ("static", "static,1", "static,4", "static,16",
                          "dynamic,1", "dynamic,4", "dynamic,8", "dynamic,16", "dynamic,32", "dynamic,64",
@@ -377,6 +380,7 @@ class LayoutSearch:
         "omp_places": ("id", "fast_first", "slow_first"),
     }
     MIN_GROUP = 16
+    TOP_VALUES = 3
     TUNE_PASSES = 2
 
     def __init__(self, tuner, config, top_k, repeats, seed):
@@ -395,7 +399,7 @@ class LayoutSearch:
                                          if name != "group_size"})
         self.top_k, self.repeats = top_k, repeats
         self.rng, self.measured, self.layouts = random.Random(seed), {}, {}
-        self.stages, self.tuned = [], []
+        self.stages, self.tuned, self.screened = [], [], {}
         self.baseline = replace(config, cpus=tuple(sorted(config.cpus)), threads=len(config.cpus), omp_places=None)
 
     def make(self, mask, **changes):
@@ -460,17 +464,35 @@ class LayoutSearch:
             return None  # BenchmarkRunnerがCPU番号順に並べる
         return ",".join(f"{{{cpu}}}" for cpu in ordered)
 
+    def variants(self, base, name, values):
+        """baseの1項目だけ変えた構成。値→構成で、同じ構成になる値は先の1つだけ残す。"""
+        cases = {}
+        for value in values:
+            setting = self.places(base.cpus, value) if name == "omp_places" else value
+            case = replace(base, **{name: setting})
+            if case not in cases.values():
+                cases[value] = case
+        return cases
+
+    def screen(self, mask, options):
+        """既定設定から1項目だけ変えて全候補を測り、項目ごとに速い順の上位TOP_VALUES個の値を残す。"""
+        base = self.make(mask)
+        for name, values in options.items():
+            cases = self.variants(base, name, values)
+            order = list(cases)
+            self.rng.shuffle(order)
+            ms = {value: self.measure(cases[value]).ms_per_token for value in order}
+            self.screened[name] = tuple(sorted(ms, key=ms.get)[:self.TOP_VALUES])
+
     def tune_runtime(self):
-        """CPU探索の上位top_k配置それぞれで、補助設定を1項目ずつ最良値に固定していく(座標降下)。"""
-        options = self.runtime_options()
-        for mask in sorted(self.layouts, key=self.layouts.get)[:self.top_k]:
+        masks = sorted(self.layouts, key=self.layouts.get)[:self.top_k]
+        self.screen(masks[0], self.runtime_options())
+        for mask in masks:
             best = self.make(mask)
             for _ in range(self.TUNE_PASSES):
                 start = best
-                for name, values in options.items():
-                    if name == "omp_places":
-                        values = [self.places(mask, order) for order in values]
-                    cases = list(dict.fromkeys(replace(best, **{name: value}) for value in values))
+                for name, values in self.screened.items():
+                    cases = list(self.variants(best, name, values).values())
                     self.rng.shuffle(cases)
                     best = min(cases, key=lambda case: self.measure(case).ms_per_token)
                 if best == start:

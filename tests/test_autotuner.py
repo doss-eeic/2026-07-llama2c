@@ -154,6 +154,13 @@ class AutoTunerTest(unittest.TestCase):
                 self.assertGreater(len(values), 1, name)
 
             self.assertEqual({c.group_size for c in tried}, {16, 18, 24, 32, 36, 48, 72, 96, 144, 288})
+            # スクリーニング後は各項目の上位3値だけを他の配置で試す
+            screened = tuner.last_search["screened"]
+            self.assertTrue(all(1 <= len(values) <= 3 for values in screened.values()))
+            for config in tuned[1:]:
+                others = {c for c in calls if c.cpus == config.cpus}
+                self.assertTrue({c.omp_schedule for c in others} <= {*screened["omp_schedule"], "dynamic,16"})
+                self.assertTrue({c.group_size for c in others} <= {*screened["group_size"], 144})
             self.assertIn("guided,4", {c.omp_schedule for c in tried})
             # マスタースレッドを速いCPUに置く順(P→E)と遅いCPUに置く順(E→P)
             orders = {c.omp_places for c in tried} - {None}
