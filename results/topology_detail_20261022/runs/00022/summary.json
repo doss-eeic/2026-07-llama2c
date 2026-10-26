@@ -1,0 +1,23 @@
+{
+  "tokens_per_second": 778.169014,
+  "ms_per_token": 1.2850678734427223,
+  "forward_calls": 222,
+  "measured_tokens": 221,
+  "forward_ms_per_token": 1.245186221719457,
+  "attention_ms_per_token": 0.09335213122171947,
+  "attention_norm_ms_per_token": 0.0011652579185520361,
+  "attn_out_ms_per_token": 0.08228267873303168,
+  "embedding_ms_per_token": 0.0002701266968325792,
+  "ffn_down_ms_per_token": 0.1236130814479638,
+  "ffn_gate_ms_per_token": 0.1203772443438914,
+  "ffn_norm_ms_per_token": 0.0013330588235294116,
+  "ffn_up_ms_per_token": 0.12036541628959277,
+  "final_norm_ms_per_token": 0.0002948959276018099,
+  "forward_total_ms_per_token": 1.245186221719457,
+  "layer_total_ms_per_token": 0.6974848144796381,
+  "output_ms_per_token": 0.5463094117647059,
+  "qkv_ms_per_token": 0.13603019004524886,
+  "rope_ms_per_token": 0.011212674208144795,
+  "sampling_ms_per_token": 0.027974330316742083,
+  "swiglu_ms_per_token": 0.0038723031674208143
+}

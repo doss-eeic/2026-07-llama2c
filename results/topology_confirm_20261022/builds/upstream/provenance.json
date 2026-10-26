@@ -1,0 +1,14 @@
+{
+  "revision": "350e04fe35433e6d2941dce5a1f53308f87058eb",
+  "command": [
+    "gcc",
+    "-Ofast",
+    "-march=native",
+    "-fopenmp",
+    "/home/denjo/2026-07-llama2c/results/topology_confirm_20261022/builds/upstream/run.c",
+    "-lm",
+    "-o",
+    "/home/denjo/2026-07-llama2c/results/topology_confirm_20261022/builds/upstream/run"
+  ],
+  "sha256": "e7c3a08e010503251a5b022838c3eefeee3a95a4d364ec53f2bea41fb8fed577"
+}

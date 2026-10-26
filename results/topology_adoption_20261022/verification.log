@@ -1,0 +1,49 @@
+{
+  "phases": [
+    {
+      "phase": "adoption",
+      "measurements": 1697,
+      "comparisons": 1590,
+      "trials_sha256": "f1af1ab22f8afd9117db0766876c7e0408f523059f825096594fd5d372ec8162"
+    },
+    {
+      "phase": "online_raw",
+      "measurements": 99,
+      "comparisons": 48,
+      "trials_sha256": "ed71990b832a4be41b69597fd43ac459336202fb0f8a3558d679a57cce084bec"
+    },
+    {
+      "phase": "online_normalized",
+      "measurements": 99,
+      "comparisons": 48,
+      "trials_sha256": "fb88e3d31f28906241236d353459ab35fccca470d864420689d9a9fff963b846"
+    },
+    {
+      "phase": "confirm",
+      "measurements": 138,
+      "comparisons": 120,
+      "trials_sha256": "868dd5aa37fec815e9af3341e10797af7e6c577e59af60651f73e4c003be8ae2"
+    },
+    {
+      "phase": "detail",
+      "measurements": 29,
+      "comparisons": 21,
+      "trials_sha256": "e13e4beffb1400a0a41a30af8055622baa08c4ccf48a83defe30842786fba2ca"
+    }
+  ],
+  "total_measurements": 2062,
+  "profiles_parsed": 29,
+  "all_generation_sha256": "aed31b5dccc53ec57b969b614bb701d6c270b30bb2d9eb75061af2360b4e2658",
+  "runtime_configs_match_catalog": true,
+  "built_binary_hashes_verified": true,
+  "reference_sources_match_pinned_git_revisions": true,
+  "tests": 16,
+  "report_outputs_sha256": {
+    "fusion_contrasts.csv": "3c6a0c63d15a2a0d5628319d81dcf03f30808a046fd92549627d142a306abe39",
+    "search_summary.csv": "98890e6544b2003896736624bbe77bd527d4e0ada370dafd8b8ca11be95882fc",
+    "raw_search_summary.csv": "c13f0248c9d182c039fd31bb8cd3338575b06956dfb6a8340615a6ddff0fd577",
+    "best_config.json": "0e2248206eed06b34ae37d4094ef714a3030f5f2b7ffdac71fb07b5ab2bce614",
+    "README.md": "fb3348208986d0baf94373ad05545ada2c6190536a35bfab4cee8d63af8e770c"
+  },
+  "verification_script_sha256": "0b22ec61d616e49c1c1d97d18fd7a3f2ffa4ddc6492fa8827a921c850a7aee35"
+}

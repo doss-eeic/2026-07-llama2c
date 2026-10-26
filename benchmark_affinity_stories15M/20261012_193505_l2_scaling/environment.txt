@@ -1,0 +1,17 @@
+start_local=2026-10-12T19:35:05+09:00
+project_dir=/home/denjo/2026-07-llama2c
+run_bin=./run
+model=./stories15M.bin
+repeats=7
+warmups=1
+steps=256
+temperature=0
+seed=42
+prompt=Once upon a time
+order_seed=20261012
+perf=0
+perf_repeats=2
+perf_events=cycles,instructions,cache-references,cache-misses
+uname=Linux EE00044 7.0.0-31-generic #31~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Mon Aug 10 09:38:02 UTC 2 x86_64 x86_64 x86_64 GNU/Linux
+allowed_cpus=pid 17884's current affinity list: 0-13
+end_local=2026-10-12T19:40:01+09:00

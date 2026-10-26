@@ -1,0 +1,44 @@
+{
+  "config": {
+    "cpus": [
+      0,
+      2,
+      1,
+      3,
+      4,
+      5,
+      8,
+      9
+    ],
+    "threads": 8,
+    "output": "/home/denjo/2026-07-llama2c/results/current_vs_upstream_20261020_184747_142513",
+    "binary": "/home/denjo/2026-07-llama2c/build/compare-upstream",
+    "model": "/home/denjo/2026-07-llama2c/build/stories15M.bin",
+    "tokenizer": "/home/denjo/2026-07-llama2c/tokenizer.bin",
+    "steps": 32,
+    "temperature": 0.0,
+    "seed": 42,
+    "prompt": "Once upon a time",
+    "omp_dynamic": false,
+    "omp_proc_bind": "close",
+    "omp_places": null,
+    "omp_schedule": "static",
+    "output_threads": 8,
+    "output_schedule": "static",
+    "output_chunk": 0,
+    "timeout": 300,
+    "build": false
+  },
+  "source": "upstream",
+  "runtime_defaults": false,
+  "effective_environment": {
+    "OMP_NUM_THREADS": "8",
+    "OMP_DYNAMIC": "FALSE",
+    "OMP_PROC_BIND": "close",
+    "OMP_PLACES": "{0},{2},{1},{3},{4},{5},{8},{9}",
+    "OMP_SCHEDULE": "static",
+    "OUTPUT_THREADS": "8",
+    "OUTPUT_SCHEDULE": "static",
+    "OUTPUT_CHUNK": "0"
+  }
+}

@@ -1,0 +1,119 @@
+outputs: 1 distinct (OK, all identical)
+[profile=performance governor=powersave epp=performance platform_profile=performance]
+modes: w0 w3 w4 w5   (baseline w0; -w 0 mmap, 3 hugepage, 4 +layer-contiguous, 5 +fused qkv/w1w3)
+
+1) ms/token per stage and tok/s (median over rounds)
+  layers (ms)
+  config  CPU              w0       w3       w4       w5
+  P1      0             1.035    0.991    0.995    0.973
+  P2      0,2           0.857    0.815    0.813    0.751
+  P4_HT   0-3           0.800    0.748    0.747    0.670
+  E4      4-7           1.005    0.972    0.977    0.895
+  X4_2_2  4,5,8,9       0.907    0.873    0.873    0.792
+  E1      4             2.071    1.902    2.103    1.977
+  E2      4,5           1.240    1.202    1.201    1.127
+  output layer (ms)
+  config  CPU              w0       w3       w4       w5
+  P1      0             1.175    1.182    1.171    1.177
+  P2      0,2           0.861    0.840    0.838    0.838
+  P4_HT   0-3           0.753    0.725    0.724    0.724
+  E4      4-7           1.005    1.006    1.005    1.008
+  X4_2_2  4,5,8,9       0.857    0.848    0.851    0.848
+  E1      4             2.871    2.655    2.957    2.785
+  E2      4,5           1.389    1.359    1.358    1.358
+  forward (ms)
+  config  CPU              w0       w3       w4       w5
+  P1      0             2.209    2.172    2.167    2.151
+  P2      0,2           1.717    1.655    1.652    1.589
+  P4_HT   0-3           1.554    1.474    1.472    1.394
+  E4      4-7           2.009    1.979    1.983    1.900
+  X4_2_2  4,5,8,9       1.762    1.721    1.722    1.639
+  E1      4             4.942    4.557    5.060    4.762
+  E2      4,5           2.629    2.561    2.557    2.485
+  tok/s
+  config  CPU              w0       w3       w4       w5
+  P1      0               447      455      456      459
+  P2      0,2             572      594      595      617
+  P4_HT   0-3             631      666      666      702
+  E4      4-7             490      498      497      518
+  X4_2_2  4,5,8,9         557      571      570      599
+  E1      4               201      218      196      209
+  E2      4,5             376      386      386      397
+
+2) speedup vs baseline w0 (paired median over rounds, wins)
+  w3 vs w0
+  config            layers      output layer         forward
+  P1          1.046x 10/10    0.996x  4/10    1.018x  9/10
+  P2          1.052x 10/10    1.026x 10/10    1.040x 10/10
+  P4_HT       1.068x 10/10    1.038x 10/10    1.054x 10/10
+  E4          1.034x 10/10    0.998x  3/10    1.015x  9/10
+  X4_2_2      1.043x 10/10    1.012x  9/10    1.027x 10/10
+  E1          1.062x  8/10    1.043x  7/10    1.051x  7/10
+  E2          1.031x 10/10    1.023x 10/10    1.027x 10/10
+  w4 vs w0
+  config            layers      output layer         forward
+  P1          1.041x 10/10    1.005x  7/10    1.022x 10/10
+  P2          1.051x 10/10    1.027x 10/10    1.039x 10/10
+  P4_HT       1.073x 10/10    1.040x 10/10    1.056x 10/10
+  E4          1.031x 10/10    1.001x  6/10    1.016x 10/10
+  X4_2_2      1.039x 10/10    1.009x  9/10    1.024x 10/10
+  E1          1.003x  5/10    0.988x  5/10    0.994x  5/10
+  E2          1.034x 10/10    1.024x 10/10    1.028x 10/10
+  w5 vs w0
+  config            layers      output layer         forward
+  P1          1.062x 10/10    1.000x  5/10    1.028x 10/10
+  P2          1.136x 10/10    1.027x 10/10    1.078x 10/10
+  P4_HT       1.193x 10/10    1.040x 10/10    1.112x 10/10
+  E4          1.123x 10/10    0.995x  4/10    1.057x 10/10
+  X4_2_2      1.144x 10/10    1.012x 10/10    1.075x 10/10
+  E1          1.038x  6/10    1.023x  6/10    1.029x  6/10
+  E2          1.101x 10/10    1.022x 10/10    1.058x 10/10
+
+2b) each mode vs the previous one (what the extra step adds)
+  w4 vs w3
+  config            layers      output layer         forward
+  P1          0.994x  4/10    1.005x  8/10    0.999x  4/10
+  P2          1.002x  5/10    1.002x  6/10    1.002x  8/10
+  P4_HT       1.000x  6/10    1.001x  6/10    1.001x  5/10
+  E4          0.996x  3/10    1.004x  8/10    0.999x  5/10
+  X4_2_2      1.000x  5/10    0.997x  4/10    0.999x  5/10
+  E1          0.944x  3/10    0.945x  3/10    0.945x  3/10
+  E2          1.001x  6/10    1.001x  6/10    1.001x  6/10
+  w5 vs w4
+  config            layers      output layer         forward
+  P1          1.024x 10/10    0.997x  3/10    1.008x  9/10
+  P2          1.083x 10/10    1.000x  5/10    1.040x 10/10
+  P4_HT       1.116x 10/10    1.002x  7/10    1.056x 10/10
+  E4          1.094x 10/10    0.997x  4/10    1.041x 10/10
+  X4_2_2      1.101x 10/10    1.005x  7/10    1.051x 10/10
+  E1          0.990x  4/10    0.993x  4/10    0.992x  4/10
+  E2          1.066x 10/10    1.001x  6/10    1.029x 10/10
+
+3) estimate for plan 2A: layers on the best config + output layer on the best config
+   (sum of separately measured stage medians; the cost of switching cores between stages is NOT included)
+   w0: layers P4_HT 0.800 + output P4_HT 0.753 = 1.553 ms (644 tok/s)   best single config: P4_HT 1.554 ms (643 tok/s)
+   w3: layers P4_HT 0.748 + output P4_HT 0.725 = 1.473 ms (679 tok/s)   best single config: P4_HT 1.474 ms (679 tok/s)
+   w4: layers P4_HT 0.747 + output P4_HT 0.724 = 1.472 ms (679 tok/s)   best single config: P4_HT 1.472 ms (679 tok/s)
+   w5: layers P4_HT 0.670 + output P4_HT 0.724 = 1.394 ms (718 tok/s)   best single config: P4_HT 1.394 ms (717 tok/s)
+
+4) run-to-run range over rounds (min-max ms/token)
+  w0
+  config          layers        output       forward
+  P1           1.03-1.04     1.17-1.19     2.20-2.23
+  P2           0.85-0.86     0.86-0.88     1.71-1.74
+  P4_HT        0.79-0.81     0.75-0.76     1.55-1.56
+  E4           1.00-1.08     1.00-1.05     2.01-2.13
+  X4_2_2       0.90-0.92     0.85-0.87     1.76-1.79
+  E1           1.93-2.43     2.64-3.37     4.56-5.80
+  E2           1.23-1.25     1.38-1.40     2.62-2.65
+  w5
+  config          layers        output       forward
+  P1           0.96-0.98     1.16-1.18     2.13-2.16
+  P2           0.75-0.76     0.84-0.84     1.58-1.60
+  P4_HT        0.67-0.68     0.72-0.73     1.39-1.40
+  E4           0.89-0.91     1.00-1.02     1.89-1.93
+  X4_2_2       0.79-0.80     0.84-0.85     1.63-1.65
+  E1           1.85-2.82     2.58-4.02     4.43-6.84
+  E2           1.12-1.13     1.35-1.36     2.48-2.49
+
+5) same core type, more threads (forward w0, tok/s):  P1->P2->P4_HT 447 -> 572 -> 631   E1->E2->E4/X4_2_2 201 -> 376 -> 490 -> 557

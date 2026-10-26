@@ -1,0 +1,875 @@
+{
+  "repeat": 5,
+  "seed": 42,
+  "randomization": "shuffle within each complete replicate block",
+  "factors": [
+    "backend",
+    "dynamic",
+    "qkv",
+    "ffn",
+    "row4"
+  ],
+  "note": "Factorial dynamic uses 16 layer rows and 32 output physical rows per task. Attention is static.",
+  "candidates": [
+    {
+      "name": "P4E4_openmp_d0_q0_f0_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_openmp_d0_q0_f0_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_openmp_d0_q0_f1_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_openmp_d0_q0_f1_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_openmp_d0_q1_f0_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_openmp_d0_q1_f0_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_openmp_d0_q1_f1_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_openmp_d0_q1_f1_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_openmp_d1_q0_f0_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_openmp_d1_q0_f0_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_openmp_d1_q0_f1_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_openmp_d1_q0_f1_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_openmp_d1_q1_f0_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_openmp_d1_q1_f0_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_openmp_d1_q1_f1_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_openmp_d1_q1_f1_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_pthread_d0_q0_f0_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_pthread_d0_q0_f0_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_pthread_d0_q0_f1_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_pthread_d0_q0_f1_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_pthread_d0_q1_f0_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_pthread_d0_q1_f0_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_pthread_d0_q1_f1_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_pthread_d0_q1_f1_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_pthread_d1_q0_f0_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_pthread_d1_q0_f0_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_pthread_d1_q0_f1_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_pthread_d1_q0_f1_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_pthread_d1_q1_f0_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_pthread_d1_q1_f0_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P4E4_pthread_d1_q1_f1_r0",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P4E4_pthread_d1_q1_f1_r1",
+      "family": "factorial",
+      "layout": "P4E4",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_openmp_d0_q0_f0_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_openmp_d0_q0_f0_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_openmp_d0_q0_f1_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_openmp_d0_q0_f1_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_openmp_d0_q1_f0_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_openmp_d0_q1_f0_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_openmp_d0_q1_f1_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_openmp_d0_q1_f1_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_openmp_d1_q0_f0_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_openmp_d1_q0_f0_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_openmp_d1_q0_f1_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_openmp_d1_q0_f1_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_openmp_d1_q1_f0_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_openmp_d1_q1_f0_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_openmp_d1_q1_f1_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_openmp_d1_q1_f1_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_pthread_d0_q0_f0_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_pthread_d0_q0_f0_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_pthread_d0_q0_f1_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_pthread_d0_q0_f1_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_pthread_d0_q1_f0_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_pthread_d0_q1_f0_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_pthread_d0_q1_f1_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_pthread_d0_q1_f1_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_pthread_d1_q0_f0_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_pthread_d1_q0_f0_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_pthread_d1_q0_f1_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_pthread_d1_q0_f1_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_pthread_d1_q1_f0_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_pthread_d1_q1_f0_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 0,
+      "row4": 1
+    },
+    {
+      "name": "P2E8_pthread_d1_q1_f1_r0",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "P2E8_pthread_d1_q1_f1_r1",
+      "family": "factorial",
+      "layout": "P2E8",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "legacy_upstream_P4",
+      "family": "legacy",
+      "layout": "P4",
+      "backend": "upstream",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "legacy_stay_P4",
+      "family": "legacy",
+      "layout": "P4",
+      "backend": "stay",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "legacy_upstream_P4E4",
+      "family": "legacy",
+      "layout": "P4E4",
+      "backend": "upstream",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "legacy_stay_P4E4",
+      "family": "legacy",
+      "layout": "P4E4",
+      "backend": "stay",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "legacy_upstream_P2E8",
+      "family": "legacy",
+      "layout": "P2E8",
+      "backend": "upstream",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "legacy_stay_P2E8",
+      "family": "legacy",
+      "layout": "P2E8",
+      "backend": "stay",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "legacy_upstream_All14",
+      "family": "legacy",
+      "layout": "All14",
+      "backend": "upstream",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "legacy_stay_All14",
+      "family": "legacy",
+      "layout": "All14",
+      "backend": "stay",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "legacy_stay_switch4_8_w1",
+      "family": "legacy",
+      "layout": "switch4_8",
+      "backend": "stay",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "legacy_stay_switch4_8_w2",
+      "family": "legacy",
+      "layout": "switch4_8",
+      "backend": "stay",
+      "dynamic": 1,
+      "qkv": 0,
+      "ffn": 0,
+      "row4": 0
+    },
+    {
+      "name": "legacy_parallel_P4E4",
+      "family": "legacy",
+      "layout": "P4E4",
+      "backend": "parallel",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "legacy_parallel_P2E8",
+      "family": "legacy",
+      "layout": "P2E8",
+      "backend": "parallel",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 1
+    },
+    {
+      "name": "legacy_parallel_All14",
+      "family": "legacy",
+      "layout": "All14",
+      "backend": "parallel",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "switch_openmp_4_8_d0",
+      "family": "switch",
+      "layout": "switch4_8",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "switch_openmp_8_14_d0",
+      "family": "switch",
+      "layout": "switch8_14",
+      "backend": "openmp",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "switch_openmp_4_8_d1",
+      "family": "switch",
+      "layout": "switch4_8",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "switch_openmp_8_14_d1",
+      "family": "switch",
+      "layout": "switch8_14",
+      "backend": "openmp",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "switch_pthread_4_8_d0",
+      "family": "switch",
+      "layout": "switch4_8",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "switch_pthread_8_14_d0",
+      "family": "switch",
+      "layout": "switch8_14",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "switch_pthread_4_8_d1",
+      "family": "switch",
+      "layout": "switch4_8",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "switch_pthread_8_14_d1",
+      "family": "switch",
+      "layout": "switch8_14",
+      "backend": "pthread",
+      "dynamic": 1,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    },
+    {
+      "name": "switch_pthread_4_8_static_weight2",
+      "family": "switch",
+      "layout": "switch4_8",
+      "backend": "pthread",
+      "dynamic": 0,
+      "qkv": 1,
+      "ffn": 1,
+      "row4": 0
+    }
+  ]
+}

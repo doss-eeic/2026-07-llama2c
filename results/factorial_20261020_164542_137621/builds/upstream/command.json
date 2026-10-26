@@ -1,0 +1,10 @@
+[
+  "gcc",
+  "-Ofast",
+  "-march=native",
+  "-fopenmp",
+  "/home/denjo/2026-07-llama2c/results/factorial_20261020_164542_137621/builds/upstream/run.c",
+  "-lm",
+  "-o",
+  "/home/denjo/2026-07-llama2c/build/factorial-upstream"
+]

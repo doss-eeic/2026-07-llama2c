@@ -1,0 +1,2 @@
+weights: mode=copy load_ms=20 offset_mod64=28 anon_huge_kb=0
+achieved tok/s: 283.697047

@@ -1,0 +1,119 @@
+{
+  "arguments": {
+    "model": "/home/denjo/2026-07-llama2c/build/stories15M.bin",
+    "output": "results/omp_tmp_tune_20261026",
+    "phase": "tune",
+    "previous": "results/omp_tmp_coarse_20261026",
+    "repeats": 3,
+    "upstream_ref": "350e04fe35433e6d2941dce5a1f53308f87058eb",
+    "main_ref": "origin/master"
+  },
+  "time_utc": "2026-10-26T04:28:03.851229+00:00",
+  "commit": "3bd572ed59901fda549601953b4d8ab7361e25e0",
+  "source_sha256": "027fb5e4c5376ab2e09190393797d8c47a52807b16ad5d8e427d0e95c445c43f",
+  "model_sha256": "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a",
+  "tokenizer_sha256": "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ece361",
+  "cpu": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           46 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  14\nOn-line CPU(s) list:                     0-13\nVendor ID:                               GenuineIntel\nModel name:                              Intel(R) Core(TM) Ultra 5 225U\nCPU family:                              6\nModel:                                   181\nThread(s) per core:                      2\nCore(s) per socket:                      12\nSocket(s):                               1\nStepping:                                0\nCPU(s) scaling MHz:                      87%\nCPU max MHz:                             4800.0000\nCPU min MHz:                             400.0000\nBogoMIPS:                                6144.00\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf tsc_known_freq pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb ssbd ibrs ibpb stibp ibrs_enhanced tpr_shadow flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid rdseed adx smap clflushopt clwb intel_pt sha_ni xsaveopt xsavec xgetbv1 xsaves split_lock_detect user_shstk avx_vnni dtherm ida arat pln pts hwp hwp_notify hwp_act_window hwp_epp hwp_pkg_req hfi vnmi umip pku ospke waitpkg gfni vaes vpclmulqdq rdpid bus_lock_detect movdiri movdir64b fsrm md_clear serialize arch_lbr ibt flush_l1d arch_capabilities\nVirtualization:                          VT-x\nL1d cache:                               352 KiB (10 instances)\nL1i cache:                               640 KiB (10 instances)\nL2 cache:                                10 MiB (5 instances)\nL3 cache:                                12 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-13\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS Not affected; BHI BHI_DIS_S\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Mitigation; IBPB before exit to userspace\n",
+  "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "affinity": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13
+  ],
+  "telemetry_before": {
+    "ac": {
+      "/sys/class/power_supply/ucsi-source-psy-USBC000:002/online": "1",
+      "/sys/class/power_supply/ucsi-source-psy-USBC000:001/online": "0",
+      "/sys/class/power_supply/AC/online": "1"
+    },
+    "temperature_mC": {
+      "INT3400 Thermal": "20000",
+      "acpitz": "53000",
+      "TCPU_PCI": "56000",
+      "SEN6": "13050",
+      "iwlwifi_1": "49000",
+      "SEN4": "30050",
+      "SEN2": "45050",
+      "SEN1": "49050",
+      "TCPU": "55050",
+      "x86_pkg_temp": "55000",
+      "SEN5": "1050",
+      "SEN3": "45050"
+    },
+    "frequency_kHz": {
+      "cpu11": "3801711",
+      "cpu9": "3815094",
+      "cpu7": "3802944",
+      "cpu5": "3741393",
+      "cpu3": "400000",
+      "cpu1": "400000",
+      "cpu12": "400000",
+      "cpu10": "3801848",
+      "cpu8": "3878636",
+      "cpu6": "3763425",
+      "cpu4": "3800925",
+      "cpu2": "4800000",
+      "cpu13": "1194637",
+      "cpu0": "4800054"
+    },
+    "loadavg": "2.89 1.51 0.76 1/1841 277602"
+  },
+  "source_refs": {
+    "upstream": "350e04fe35433e6d2941dce5a1f53308f87058eb",
+    "main": "256b0b2445ecd2c8c88d085fdf616313d5df91f3"
+  },
+  "binary_sha256": {
+    "weighted": "54e236cdb5e7a9a30c75b5db7bec8cdabdefd1632521e19b7fb059f726da48a0",
+    "upstream": "a46b4b4b70eb2bcb7b00d7184d4cdf1d699e288552a804a339aa97622429e9b0",
+    "main": "6d5ea690ec1749bd57fd0825120aa8415c06602e7eb0aa8c9e25733bc82841fc"
+  },
+  "telemetry_after": {
+    "ac": {
+      "/sys/class/power_supply/ucsi-source-psy-USBC000:002/online": "1",
+      "/sys/class/power_supply/ucsi-source-psy-USBC000:001/online": "0",
+      "/sys/class/power_supply/AC/online": "1"
+    },
+    "temperature_mC": {
+      "INT3400 Thermal": "20000",
+      "acpitz": "86000",
+      "TCPU_PCI": "89000",
+      "SEN6": "13050",
+      "iwlwifi_1": "50000",
+      "SEN4": "31050",
+      "SEN2": "46050",
+      "SEN1": "63050",
+      "TCPU": "86050",
+      "x86_pkg_temp": "86000",
+      "SEN5": "1050",
+      "SEN3": "49050"
+    },
+    "frequency_kHz": {
+      "cpu11": "3612308",
+      "cpu9": "400000",
+      "cpu7": "400000",
+      "cpu5": "3660725",
+      "cpu3": "4675705",
+      "cpu1": "4800420",
+      "cpu12": "400000",
+      "cpu10": "400000",
+      "cpu8": "400000",
+      "cpu6": "3757778",
+      "cpu4": "3803569",
+      "cpu2": "4800000",
+      "cpu13": "400000",
+      "cpu0": "4800000"
+    },
+    "loadavg": "4.80 2.14 1.00 1/1831 286253"
+  }
+}

@@ -1,0 +1,2 @@
+weights: mode=aligned+hugepage load_ms=22 offset_mod64=0 anon_huge_kb=59392
+achieved tok/s: 224.365482

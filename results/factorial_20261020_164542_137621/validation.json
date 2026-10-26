@@ -1,0 +1,22 @@
+{
+  "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "model": "build/stories15M.bin",
+  "model_sha256": "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a",
+  "static_partition_validation": "check_static_partition.c compiled with gcc -O2 -fopenmp, OMP_DYNAMIC=FALSE; all cases matched",
+  "static_partition_cases": {
+    "threads": [
+      1,
+      4,
+      8,
+      10,
+      14
+    ],
+    "rows": [
+      6,
+      24,
+      31,
+      37,
+      864
+    ]
+  }
+}

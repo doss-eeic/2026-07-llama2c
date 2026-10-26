@@ -1,0 +1,276 @@
+{
+  "performance": [
+    [
+      0,
+      1
+    ],
+    [
+      2,
+      3
+    ]
+  ],
+  "efficient_l2": [
+    [
+      4,
+      5,
+      6,
+      7
+    ],
+    [
+      8,
+      9,
+      10,
+      11
+    ]
+  ],
+  "low_power": [
+    12,
+    13
+  ],
+  "evidence": [
+    {
+      "cpu": 0,
+      "siblings": [
+        0,
+        1
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          0,
+          1
+        ]
+      },
+      "max_freq_khz": "4800000",
+      "package": 0,
+      "core": 8
+    },
+    {
+      "cpu": 1,
+      "siblings": [
+        0,
+        1
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          0,
+          1
+        ]
+      },
+      "max_freq_khz": "4800000",
+      "package": 0,
+      "core": 8
+    },
+    {
+      "cpu": 2,
+      "siblings": [
+        2,
+        3
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          2,
+          3
+        ]
+      },
+      "max_freq_khz": "4800000",
+      "package": 0,
+      "core": 12
+    },
+    {
+      "cpu": 3,
+      "siblings": [
+        2,
+        3
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          2,
+          3
+        ]
+      },
+      "max_freq_khz": "4800000",
+      "package": 0,
+      "core": 12
+    },
+    {
+      "cpu": 4,
+      "siblings": [
+        4
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          4,
+          5,
+          6,
+          7
+        ]
+      },
+      "max_freq_khz": "3800000",
+      "package": 0,
+      "core": 0
+    },
+    {
+      "cpu": 5,
+      "siblings": [
+        5
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          4,
+          5,
+          6,
+          7
+        ]
+      },
+      "max_freq_khz": "3800000",
+      "package": 0,
+      "core": 1
+    },
+    {
+      "cpu": 6,
+      "siblings": [
+        6
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          4,
+          5,
+          6,
+          7
+        ]
+      },
+      "max_freq_khz": "3800000",
+      "package": 0,
+      "core": 2
+    },
+    {
+      "cpu": 7,
+      "siblings": [
+        7
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          4,
+          5,
+          6,
+          7
+        ]
+      },
+      "max_freq_khz": "3800000",
+      "package": 0,
+      "core": 3
+    },
+    {
+      "cpu": 8,
+      "siblings": [
+        8
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          8,
+          9,
+          10,
+          11
+        ]
+      },
+      "max_freq_khz": "3800000",
+      "package": 0,
+      "core": 4
+    },
+    {
+      "cpu": 9,
+      "siblings": [
+        9
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          8,
+          9,
+          10,
+          11
+        ]
+      },
+      "max_freq_khz": "3800000",
+      "package": 0,
+      "core": 5
+    },
+    {
+      "cpu": 10,
+      "siblings": [
+        10
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          8,
+          9,
+          10,
+          11
+        ]
+      },
+      "max_freq_khz": "3800000",
+      "package": 0,
+      "core": 6
+    },
+    {
+      "cpu": 11,
+      "siblings": [
+        11
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          8,
+          9,
+          10,
+          11
+        ]
+      },
+      "max_freq_khz": "3800000",
+      "package": 0,
+      "core": 7
+    },
+    {
+      "cpu": 12,
+      "siblings": [
+        12
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          12,
+          13
+        ]
+      },
+      "max_freq_khz": "2400000",
+      "package": 0,
+      "core": 32
+    },
+    {
+      "cpu": 13,
+      "siblings": [
+        13
+      ],
+      "l2": {
+        "size": "2048K",
+        "shared_cpus": [
+          12,
+          13
+        ]
+      },
+      "max_freq_khz": "2400000",
+      "package": 0,
+      "core": 33
+    }
+  ]
+}

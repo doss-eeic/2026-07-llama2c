@@ -1,0 +1,86 @@
+[
+  {
+    "cpu": 0,
+    "core_id": "8",
+    "siblings": "0-1",
+    "max_khz": "4800000"
+  },
+  {
+    "cpu": 1,
+    "core_id": "8",
+    "siblings": "0-1",
+    "max_khz": "4800000"
+  },
+  {
+    "cpu": 2,
+    "core_id": "12",
+    "siblings": "2-3",
+    "max_khz": "4800000"
+  },
+  {
+    "cpu": 3,
+    "core_id": "12",
+    "siblings": "2-3",
+    "max_khz": "4800000"
+  },
+  {
+    "cpu": 4,
+    "core_id": "0",
+    "siblings": "4",
+    "max_khz": "3800000"
+  },
+  {
+    "cpu": 5,
+    "core_id": "1",
+    "siblings": "5",
+    "max_khz": "3800000"
+  },
+  {
+    "cpu": 6,
+    "core_id": "2",
+    "siblings": "6",
+    "max_khz": "3800000"
+  },
+  {
+    "cpu": 7,
+    "core_id": "3",
+    "siblings": "7",
+    "max_khz": "3800000"
+  },
+  {
+    "cpu": 8,
+    "core_id": "4",
+    "siblings": "8",
+    "max_khz": "3800000"
+  },
+  {
+    "cpu": 9,
+    "core_id": "5",
+    "siblings": "9",
+    "max_khz": "3800000"
+  },
+  {
+    "cpu": 10,
+    "core_id": "6",
+    "siblings": "10",
+    "max_khz": "3800000"
+  },
+  {
+    "cpu": 11,
+    "core_id": "7",
+    "siblings": "11",
+    "max_khz": "3800000"
+  },
+  {
+    "cpu": 12,
+    "core_id": "32",
+    "siblings": "12",
+    "max_khz": "2400000"
+  },
+  {
+    "cpu": 13,
+    "core_id": "33",
+    "siblings": "13",
+    "max_khz": "2400000"
+  }
+]

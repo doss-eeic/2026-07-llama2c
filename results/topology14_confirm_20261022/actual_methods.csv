@@ -1,0 +1,11 @@
+method,seed,queries,selected,confirmed_mean_tokens_per_second,confirmed_mean_latency_gap_pct,all_layer_sizes_1_to14
+random,0,112,L0-2-4-5-6-7-8-9_O1-3-12_pthread_d0o1r1q1f1,739.126207375,7.8793336302249495,True
+random,1,112,L0-2-1-4-5-8-9_O3-6-7-10-11-12_pthread_d0o1r0q1f1,776.88781925,2.6114363127847096,True
+beam14,0,112,L0-2-1-3-4-8_O5-6-7-9_pthread_d0o1r1q1f1,780.520207875,2.1161638800428983,True
+beam14,1,112,L0-2-1-3-4-5-6-8_O9-10_openmp_d1o1r1q1f1,742.105139625,7.429086008772301,True
+hierarchical,0,112,L0-2-1-4-5-6-8_O9-10-11-12-13_pthread_d1o1r1q1f1,770.2120745,3.511931565100568,True
+hierarchical,1,112,L0-2-4-5-6-7-8_O1-9_openmp_d1o1r1q1f1,759.86837,4.862674501165221,True
+model_counts,0,112,L0-2-1-3-4-5-6-7-8_O9-10_pthread_d1o1r1q1f1,783.055596,1.7559657899473669,True
+model_counts,1,112,L0-2-1-3-4-5-6-7-8-9-10_Osame_openmp_d1o1r0q1f1,762.220761,4.727600188690206,True
+model,0,112,L0-2-4-5-6-7-8-9-10-11_Osame_openmp_d1o1r1q1f1,762.825294375,4.817649698692561,True
+model,1,112,L0-2-4-5-8_O1-6-7-9-12-13_pthread_d1o1r1q1f1,766.491721625,4.007204006985865,True

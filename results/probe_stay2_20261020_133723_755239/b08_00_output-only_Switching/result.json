@@ -1,0 +1,12 @@
+{
+  "config": "Switching",
+  "mode": "output-only",
+  "wall_seconds": 0.3160348910000721,
+  "forward_calls": 222,
+  "measured_tokens": 221,
+  "forward_ms_per_token": 1.2473275294117647,
+  "forward_total": 1.2473275294117647,
+  "output": 1.246607850678733,
+  "tokens_sha256": "2ecdc30f8af7c22d449ca777bc79e11300cbc6dcc3bbb2483f1406ae726af649",
+  "sensor_samples": 0
+}

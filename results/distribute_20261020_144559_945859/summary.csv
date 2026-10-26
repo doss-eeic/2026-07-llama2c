@@ -1,0 +1,7 @@
+config,run,cpus,threads,schedule,output_threads,output_schedule,tokens_per_second,ms_per_token
+threads4,1,"0,1,2,3,4,5,8,9",4,static,8,"dynamic,128",692.789969,1.4434389133021641
+threads4,2,"0,1,2,3,4,5,8,9",4,static,8,"dynamic,128",673.780488,1.484162895497799
+threads4,3,"0,1,2,3,4,5,8,9",4,static,8,"dynamic,128",699.367089,1.4298642525913885
+threads8,1,"0,1,2,3,4,5,8,9",8,static,8,"dynamic,128",756.849315,1.3212669684453635
+threads8,2,"0,1,2,3,4,5,8,9",8,static,8,"dynamic,128",764.705882,1.307692308295858
+threads8,3,"0,1,2,3,4,5,8,9",8,static,8,"dynamic,128",741.610738,1.348416290056469

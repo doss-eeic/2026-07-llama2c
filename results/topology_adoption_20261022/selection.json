@@ -1,0 +1,401 @@
+{
+  "rule": "normalized top4 + raw top4 + best each backend/SMT class + two historical controls + actual online winners",
+  "online_evidence": [
+    {
+      "source": "results/topology_online_raw_20261022",
+      "trace_sha256": "63e87459c4134fc8eec5953abcc8d998efe788c99bfd560eb045b760498302f6"
+    },
+    {
+      "source": "results/topology_online_normalized_20261022",
+      "trace_sha256": "4465896ae2094dfe224d9f8f65f029360ad6d280208a3f009d53bc3085117c5a"
+    }
+  ],
+  "candidates": [
+    {
+      "layer": [
+        0,
+        2,
+        4,
+        5,
+        8,
+        9
+      ],
+      "output": [
+        0,
+        2,
+        4,
+        5,
+        8,
+        9,
+        6,
+        7,
+        10,
+        11
+      ],
+      "backend": "pthread",
+      "dynamic": 1,
+      "output_dynamic": 1,
+      "row4": 0,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7
+      ],
+      "output": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "backend": "pthread",
+      "dynamic": 1,
+      "output_dynamic": 1,
+      "row4": 0,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        4,
+        5,
+        8,
+        9
+      ],
+      "output": [
+        0,
+        2,
+        4,
+        5,
+        8,
+        9,
+        1,
+        3,
+        6,
+        7,
+        10,
+        11
+      ],
+      "backend": "pthread",
+      "dynamic": 0,
+      "output_dynamic": 1,
+      "row4": 0,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "output": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "backend": "pthread",
+      "dynamic": 1,
+      "output_dynamic": 1,
+      "row4": 0,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "output": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9,
+        6,
+        7,
+        10,
+        11
+      ],
+      "backend": "pthread",
+      "dynamic": 0,
+      "output_dynamic": 1,
+      "row4": 1,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        4,
+        5,
+        8,
+        9
+      ],
+      "output": [
+        0,
+        2,
+        4,
+        5,
+        8,
+        9,
+        6,
+        7,
+        10,
+        11
+      ],
+      "backend": "pthread",
+      "dynamic": 0,
+      "output_dynamic": 1,
+      "row4": 1,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "output": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "backend": "openmp",
+      "dynamic": 1,
+      "output_dynamic": 1,
+      "row4": 0,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "output": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "backend": "openmp",
+      "dynamic": 1,
+      "output_dynamic": 1,
+      "row4": 1,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "output": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "backend": "openmp",
+      "dynamic": 0,
+      "output_dynamic": 0,
+      "row4": 1,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "output": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "backend": "openmp",
+      "dynamic": 1,
+      "output_dynamic": 1,
+      "row4": 0,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "output": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "backend": "pthread",
+      "dynamic": 1,
+      "output_dynamic": 1,
+      "row4": 0,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "output": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "backend": "openmp",
+      "dynamic": 1,
+      "output_dynamic": 1,
+      "row4": 1,
+      "qkv": 1,
+      "ffn": 1
+    },
+    {
+      "layer": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "output": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9,
+        6,
+        7,
+        10,
+        11
+      ],
+      "backend": "pthread",
+      "dynamic": 0,
+      "output_dynamic": 1,
+      "row4": 0,
+      "qkv": 1,
+      "ffn": 1
+    }
+  ]
+}

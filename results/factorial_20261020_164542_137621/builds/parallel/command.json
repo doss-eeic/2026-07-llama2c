@@ -1,0 +1,11 @@
+[
+  "gcc",
+  "-Ofast",
+  "-march=native",
+  "-DLLAMA_PARALLEL",
+  "-fopenmp",
+  "/home/denjo/2026-07-llama2c/run.c",
+  "-lm",
+  "-o",
+  "/home/denjo/2026-07-llama2c/build/factorial-parallel"
+]

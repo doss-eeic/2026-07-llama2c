@@ -1,0 +1,2 @@
+persistent OpenMP: team=10 layer=6 output=10
+achieved tok/s: 1277.456647

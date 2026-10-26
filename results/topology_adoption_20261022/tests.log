@@ -1,0 +1,34 @@
+test_all_switches_and_pool_sizes (test_factorial.FactorialTest.test_all_switches_and_pool_sizes) ... ok
+test_constant_block_interval (test_factorial_analysis.FactorialAnalysisTest.test_constant_block_interval) ... ok
+test_saved_time_and_interaction_signs (test_factorial_analysis.FactorialAnalysisTest.test_saved_time_and_interaction_signs) ... Fastest exploratory configurations:
+10111: 163.93 tokens/s, 6.1000 ms/token
+10110: 161.29 tokens/s, 6.2000 ms/token
+01111: 161.29 tokens/s, 6.2000 ms/token
+01110: 158.73 tokens/s, 6.3000 ms/token
+11111: 158.73 tokens/s, 6.3000 ms/token
+00111: 156.25 tokens/s, 6.4000 ms/token
+11110: 156.25 tokens/s, 6.4000 ms/token
+00110: 153.85 tokens/s, 6.5000 ms/token
+10011: 131.58 tokens/s, 7.6000 ms/token
+10010: 129.87 tokens/s, 7.7000 ms/token
+01011: 129.87 tokens/s, 7.7000 ms/token
+01010: 128.21 tokens/s, 7.8000 ms/token
+ok
+test_logits_match_reference (test_parallel.ParallelTest.test_logits_match_reference) ... ok
+test_rejects_incomplete_profile (test_profile_benchmark.ProfileBenchmarkTest.test_rejects_incomplete_profile) ... ok
+test_stay_and_reference_profiles_preserve_generation (test_profile_benchmark.ProfileBenchmarkTest.test_stay_and_reference_profiles_preserve_generation) ... ok
+test_logits_and_settings (test_stay.StayTest.test_logits_and_settings) ... ok
+test_comparison_builds_each_backend_once_and_includes_upstream (test_stay_benchmark.StayBenchmarkTest.test_comparison_builds_each_backend_once_and_includes_upstream) ... ok
+test_environment_does_not_inherit_other_experiments (test_stay_benchmark.StayBenchmarkTest.test_environment_does_not_inherit_other_experiments) ... ok
+test_upstream_build_uses_exact_original_source (test_stay_benchmark.StayBenchmarkTest.test_upstream_build_uses_exact_original_source) ... ok
+test_control_interpolation_and_duplicate_rejection (test_topology_analysis.TopologyAnalysisTest.test_control_interpolation_and_duplicate_rejection) ... ok
+test_isolated_combination_synergy_signs (test_topology_analysis.TopologyAnalysisTest.test_isolated_combination_synergy_signs) ... ok
+test_invalid_masks_and_missing_observations (test_topology_search.TopologySearchTest.test_invalid_masks_and_missing_observations) ... ok
+test_no_lookahead_repeatability_and_no_duplicates (test_topology_search.TopologySearchTest.test_no_lookahead_repeatability_and_no_duplicates) ... ok
+test_realistic_space_and_runtime_mapping (test_topology_search.TopologySearchTest.test_realistic_space_and_runtime_mapping) ... ok
+test_recursive_ridge_first_observation_exact (test_topology_search.TopologySearchTest.test_recursive_ridge_first_observation_exact) ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 9.410s
+
+OK

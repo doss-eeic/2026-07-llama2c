@@ -1,0 +1,6 @@
+{
+  "screening": "factorial_20261020_164542_137621",
+  "binaries": "same binaries as screening; no recompilation",
+  "seed": 500,
+  "repeat": 10
+}

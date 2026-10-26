@@ -1,0 +1,16 @@
+start_local=2026-10-13T16:21:32+09:00
+hostname=EE00025
+run_bin=./run
+model=./stories15M.bin
+repeats=10
+warmups=1
+steps=256
+seed=42
+prompt=Once upon a time
+order_seed=20261013
+modes=0 1 2 3
+threads=1 2 4
+uname=Linux EE00025 6.17.0-35-generic #35~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Tue May 26 19:30:42 UTC 2 x86_64 x86_64 x86_64 GNU/Linux
+thp_enabled=always [madvise] never
+thp_defrag=always defer defer+madvise [madvise] never
+end_local=2026-10-13T16:23:11+09:00

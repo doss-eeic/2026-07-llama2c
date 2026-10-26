@@ -1,0 +1,108 @@
+STATE power-saver 1 governor=powersave epp=power platform_profile=low-power
+BW power-saver 1 10.8 13.1
+TOK power-saver 1 t1_w0 189.050470
+TOK power-saver 1 t4P_w0 280.101394
+TOK power-saver 1 t1_w3 198.384201
+TOK power-saver 1 t4P_w3 291.941876
+STATE balanced 1 governor=powersave epp=balance_performance platform_profile=balanced
+BW balanced 1 10.5 13.1
+TOK balanced 1 t1_w0 204.251386
+TOK balanced 1 t4P_w0 574.025974
+TOK balanced 1 t1_w3 217.305801
+TOK balanced 1 t4P_w3 594.086022
+STATE performance 1 governor=powersave epp=performance platform_profile=performance
+BW performance 1 26.5 31.8
+TOK performance 1 t1_w0 445.564516
+TOK performance 1 t4P_w0 629.629630
+TOK performance 1 t1_w3 468.220339
+TOK performance 1 t4P_w3 659.701493
+STATE balanced 2 governor=powersave epp=balance_performance platform_profile=balanced
+BW balanced 2 10.6 12.9
+TOK balanced 2 t1_w0 207.317073
+TOK balanced 2 t4P_w0 569.587629
+TOK balanced 2 t1_w3 221.000000
+TOK balanced 2 t4P_w3 595.687332
+STATE power-saver 2 governor=powersave epp=power platform_profile=low-power
+BW power-saver 2 10.5 12.3
+TOK power-saver 2 t1_w0 183.554817
+TOK power-saver 2 t4P_w0 271.498771
+TOK power-saver 2 t1_w3 195.748450
+TOK power-saver 2 t4P_w3 277.638191
+STATE performance 2 governor=powersave epp=performance platform_profile=performance
+BW performance 2 26.3 31.4
+TOK performance 2 t1_w0 442.885772
+TOK performance 2 t4P_w0 619.047619
+TOK performance 2 t1_w3 466.244726
+TOK performance 2 t4P_w3 669.696970
+STATE performance 3 governor=powersave epp=performance platform_profile=performance
+BW performance 3 26.5 31.2
+TOK performance 3 t1_w0 446.464646
+TOK performance 3 t4P_w0 631.428571
+TOK performance 3 t1_w3 469.214437
+TOK performance 3 t4P_w3 657.738095
+STATE power-saver 3 governor=powersave epp=power platform_profile=low-power
+BW power-saver 3 10.6 13.0
+TOK power-saver 3 t1_w0 188.405797
+TOK power-saver 3 t4P_w0 281.170483
+TOK power-saver 3 t1_w3 201.275046
+TOK power-saver 3 t4P_w3 294.666667
+STATE balanced 3 governor=powersave epp=balance_performance platform_profile=balanced
+BW balanced 3 10.7 13.2
+TOK balanced 3 t1_w0 201.642336
+TOK balanced 3 t4P_w0 569.587629
+TOK balanced 3 t1_w3 221.664995
+TOK balanced 3 t4P_w3 581.578947
+STATE power-saver 4 governor=powersave epp=power platform_profile=low-power
+BW power-saver 4 10.8 12.9
+TOK power-saver 4 t1_w0 188.085106
+TOK power-saver 4 t4P_w0 281.528662
+TOK power-saver 4 t1_w3 199.458484
+TOK power-saver 4 t4P_w3 293.103448
+STATE balanced 4 governor=powersave epp=balance_performance platform_profile=balanced
+BW balanced 4 10.6 13.2
+TOK balanced 4 t1_w0 229.015544
+TOK balanced 4 t4P_w0 574.025974
+TOK balanced 4 t1_w3 219.246032
+TOK balanced 4 t4P_w3 597.297297
+STATE performance 4 governor=powersave epp=performance platform_profile=performance
+BW performance 4 26.4 31.9
+TOK performance 4 t1_w0 449.186992
+TOK performance 4 t4P_w0 635.057471
+TOK performance 4 t1_w3 469.214437
+TOK performance 4 t4P_w3 661.676647
+STATE power-saver 5 governor=powersave epp=power platform_profile=low-power
+BW power-saver 5 10.8 12.8
+TOK power-saver 5 t1_w0 190.025795
+TOK power-saver 5 t4P_w0 280.101394
+TOK power-saver 5 t1_w3 199.819168
+TOK power-saver 5 t4P_w3 293.882979
+STATE balanced 5 governor=powersave epp=balance_performance platform_profile=balanced
+BW balanced 5 10.6 13.2
+TOK balanced 5 t1_w0 202.752294
+TOK balanced 5 t4P_w0 566.666667
+TOK balanced 5 t1_w3 220.558882
+TOK balanced 5 t4P_w3 598.915989
+STATE performance 5 governor=powersave epp=performance platform_profile=performance
+BW performance 5 26.5 31.8
+TOK performance 5 t1_w0 449.186992
+TOK performance 5 t4P_w0 631.428571
+TOK performance 5 t1_w3 469.214437
+TOK performance 5 t4P_w3 659.701493
+STATE power-saver 6 governor=powersave epp=power platform_profile=low-power
+BW power-saver 6 10.8 12.5
+TOK power-saver 6 t1_w0 188.566553
+TOK power-saver 6 t4P_w0 280.456853
+TOK power-saver 6 t1_w3 199.099099
+TOK power-saver 6 t4P_w3 293.882979
+STATE balanced 6 governor=powersave epp=balance_performance platform_profile=balanced
+BW balanced 6 10.4 12.6
+TOK balanced 6 t1_w0 200.181159
+TOK balanced 6 t4P_w0 575.520833
+TOK balanced 6 t1_w3 224.593496
+TOK balanced 6 t4P_w3 602.179837
+STATE performance 6 governor=powersave epp=performance platform_profile=performance
+BW performance 6 26.7 32.1
+TOK performance 6 t1_w0 448.275862
+TOK performance 6 t4P_w0 629.629630
+TOK performance 6 t1_w3 469.214437
+TOK performance 6 t4P_w3 667.673716

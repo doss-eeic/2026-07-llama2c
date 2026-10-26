@@ -1,0 +1,95 @@
+{
+  "measured_trials": 300,
+  "unique_generated_text_hashes": 1,
+  "all_trial_ac_online": "0",
+  "all_throttle_counters_constant_across_measurement": true,
+  "throttle_counter_values": {
+    "/sys/devices/system/cpu/cpu8/thermal_throttle/package_throttle_count": [
+      19
+    ],
+    "/sys/devices/system/cpu/cpu12/thermal_throttle/core_throttle_count": [
+      0
+    ],
+    "/sys/devices/system/cpu/cpu6/thermal_throttle/core_throttle_count": [
+      0
+    ],
+    "/sys/devices/system/cpu/cpu3/thermal_throttle/package_throttle_count": [
+      19
+    ],
+    "/sys/devices/system/cpu/cpu5/thermal_throttle/package_throttle_count": [
+      19
+    ],
+    "/sys/devices/system/cpu/cpu8/thermal_throttle/core_throttle_count": [
+      0
+    ],
+    "/sys/devices/system/cpu/cpu13/thermal_throttle/package_throttle_count": [
+      19
+    ],
+    "/sys/devices/system/cpu/cpu11/thermal_throttle/package_throttle_count": [
+      19
+    ],
+    "/sys/devices/system/cpu/cpu7/thermal_throttle/core_throttle_count": [
+      0
+    ],
+    "/sys/devices/system/cpu/cpu5/thermal_throttle/core_throttle_count": [
+      0
+    ],
+    "/sys/devices/system/cpu/cpu7/thermal_throttle/package_throttle_count": [
+      19
+    ],
+    "/sys/devices/system/cpu/cpu11/thermal_throttle/core_throttle_count": [
+      0
+    ],
+    "/sys/devices/system/cpu/cpu3/thermal_throttle/core_throttle_count": [
+      0
+    ],
+    "/sys/devices/system/cpu/cpu4/thermal_throttle/core_throttle_count": [
+      0
+    ],
+    "/sys/devices/system/cpu/cpu0/thermal_throttle/core_throttle_count": [
+      92
+    ],
+    "/sys/devices/system/cpu/cpu1/thermal_throttle/package_throttle_count": [
+      53
+    ],
+    "/sys/devices/system/cpu/cpu6/thermal_throttle/package_throttle_count": [
+      19
+    ],
+    "/sys/devices/system/cpu/cpu0/thermal_throttle/package_throttle_count": [
+      53
+    ],
+    "/sys/devices/system/cpu/cpu2/thermal_throttle/core_throttle_count": [
+      0
+    ],
+    "/sys/devices/system/cpu/cpu4/thermal_throttle/package_throttle_count": [
+      19
+    ],
+    "/sys/devices/system/cpu/cpu13/thermal_throttle/core_throttle_count": [
+      0
+    ],
+    "/sys/devices/system/cpu/cpu10/thermal_throttle/core_throttle_count": [
+      0
+    ],
+    "/sys/devices/system/cpu/cpu2/thermal_throttle/package_throttle_count": [
+      19
+    ],
+    "/sys/devices/system/cpu/cpu10/thermal_throttle/package_throttle_count": [
+      19
+    ],
+    "/sys/devices/system/cpu/cpu12/thermal_throttle/package_throttle_count": [
+      19
+    ],
+    "/sys/devices/system/cpu/cpu1/thermal_throttle/core_throttle_count": [
+      92
+    ],
+    "/sys/devices/system/cpu/cpu9/thermal_throttle/core_throttle_count": [
+      0
+    ],
+    "/sys/devices/system/cpu/cpu9/thermal_throttle/package_throttle_count": [
+      19
+    ]
+  },
+  "source_snapshots_match_revisions": true,
+  "current_snapshot_matches_worktree": true,
+  "note": "after.json is after Python summary/bootstrap; its thermal increases occurred after inference trials."
+}

@@ -1,0 +1,117 @@
+{
+  "args": {
+    "repeats": 10,
+    "seed": 314,
+    "p4": "0,1,2,3",
+    "p8": "0,1,2,3,4,5,8,9",
+    "tokens": "results/stay2_output_20261020_133126_301350/P4_HT/profile.jsonl",
+    "skip_tokens": 1,
+    "interval": 0.05,
+    "p_weight": 2,
+    "no_sensors": true,
+    "modes": "clean,output-only",
+    "monitor_cpu": null,
+    "timeout": 60,
+    "output": "/home/denjo/2026-07-llama2c/results/probe_stay2_20261020_133807_534147"
+  },
+  "allowed_cpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13
+  ],
+  "monitor_cpu": 13,
+  "topology": {
+    "0": {
+      "topology/core_id": "8",
+      "topology/thread_siblings_list": "0-1",
+      "topology/core_type": null,
+      "cache/index2/shared_cpu_list": "0-1",
+      "cpufreq/scaling_governor": "powersave",
+      "cpufreq/energy_performance_preference": "balance_performance",
+      "cpufreq/scaling_max_freq": "4800000"
+    },
+    "1": {
+      "topology/core_id": "8",
+      "topology/thread_siblings_list": "0-1",
+      "topology/core_type": null,
+      "cache/index2/shared_cpu_list": "0-1",
+      "cpufreq/scaling_governor": "powersave",
+      "cpufreq/energy_performance_preference": "balance_performance",
+      "cpufreq/scaling_max_freq": "4800000"
+    },
+    "2": {
+      "topology/core_id": "12",
+      "topology/thread_siblings_list": "2-3",
+      "topology/core_type": null,
+      "cache/index2/shared_cpu_list": "2-3",
+      "cpufreq/scaling_governor": "powersave",
+      "cpufreq/energy_performance_preference": "balance_performance",
+      "cpufreq/scaling_max_freq": "4800000"
+    },
+    "3": {
+      "topology/core_id": "12",
+      "topology/thread_siblings_list": "2-3",
+      "topology/core_type": null,
+      "cache/index2/shared_cpu_list": "2-3",
+      "cpufreq/scaling_governor": "powersave",
+      "cpufreq/energy_performance_preference": "balance_performance",
+      "cpufreq/scaling_max_freq": "4800000"
+    },
+    "4": {
+      "topology/core_id": "0",
+      "topology/thread_siblings_list": "4",
+      "topology/core_type": null,
+      "cache/index2/shared_cpu_list": "4-7",
+      "cpufreq/scaling_governor": "powersave",
+      "cpufreq/energy_performance_preference": "balance_performance",
+      "cpufreq/scaling_max_freq": "3800000"
+    },
+    "5": {
+      "topology/core_id": "1",
+      "topology/thread_siblings_list": "5",
+      "topology/core_type": null,
+      "cache/index2/shared_cpu_list": "4-7",
+      "cpufreq/scaling_governor": "powersave",
+      "cpufreq/energy_performance_preference": "balance_performance",
+      "cpufreq/scaling_max_freq": "3800000"
+    },
+    "8": {
+      "topology/core_id": "4",
+      "topology/thread_siblings_list": "8",
+      "topology/core_type": null,
+      "cache/index2/shared_cpu_list": "8-11",
+      "cpufreq/scaling_governor": "powersave",
+      "cpufreq/energy_performance_preference": "balance_performance",
+      "cpufreq/scaling_max_freq": "3800000"
+    },
+    "9": {
+      "topology/core_id": "5",
+      "topology/thread_siblings_list": "9",
+      "topology/core_type": null,
+      "cache/index2/shared_cpu_list": "8-11",
+      "cpufreq/scaling_governor": "powersave",
+      "cpufreq/energy_performance_preference": "balance_performance",
+      "cpufreq/scaling_max_freq": "3800000"
+    }
+  },
+  "sensors": {},
+  "binary_sha256": "7e0932895a5307a05795f7658c0b3e04c396c75a07eaec13c737bd8416c3fbb2",
+  "source_sha256": "08b2dcc5d25d48f8be244527669101d5c0ac46292c001b27628b76c9803a7ca0",
+  "lscpu": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           46 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  14\nOn-line CPU(s) list:                     0-13\nVendor ID:                               GenuineIntel\nModel name:                              Intel(R) Core(TM) Ultra 5 225U\nCPU family:                              6\nModel:                                   181\nThread(s) per core:                      2\nCore(s) per socket:                      12\nSocket(s):                               1\nStepping:                                0\nCPU(s) scaling MHz:                      23%\nCPU max MHz:                             4800.0000\nCPU min MHz:                             400.0000\nBogoMIPS:                                6144.00\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf tsc_known_freq pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb ssbd ibrs ibpb stibp ibrs_enhanced tpr_shadow flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid rdseed adx smap clflushopt clwb intel_pt sha_ni xsaveopt xsavec xgetbv1 xsaves split_lock_detect user_shstk avx_vnni dtherm ida arat pln pts hwp hwp_notify hwp_act_window hwp_epp hwp_pkg_req hfi vnmi umip pku ospke waitpkg gfni vaes vpclmulqdq rdpid bus_lock_detect movdiri movdir64b fsrm md_clear serialize arch_lbr ibt flush_l1d arch_capabilities\nVirtualization:                          VT-x\nL1d cache:                               352 KiB (10 instances)\nL1i cache:                               640 KiB (10 instances)\nL2 cache:                                10 MiB (5 instances)\nL3 cache:                                12 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-13\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS Not affected; BHI BHI_DIS_S\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Mitigation; IBPB before exit to userspace\n",
+  "notes": [
+    "scaling_cur_freq is a sysfs snapshot, not per-stage actual cycles",
+    "trace runs are separate from timed runs",
+    "output-only uses embeddings as fixed inputs, not full-forward hidden states"
+  ]
+}

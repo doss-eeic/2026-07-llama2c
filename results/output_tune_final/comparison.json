@@ -1,0 +1,22 @@
+{
+  "final": {
+    "split_case": 3,
+    "best_unsplit_case": 7,
+    "gain_percent": 0.10449320013612429,
+    "paired_bootstrap_95_percent": [
+      -0.836236945117308,
+      1.2513034349621144
+    ],
+    "repeats": 20
+  },
+  "confirm": {
+    "split_case": 3,
+    "best_unsplit_case": 2,
+    "gain_percent": -2.458751211629251,
+    "paired_bootstrap_95_percent": [
+      -4.304846943801155,
+      -0.8269930378928647
+    ],
+    "repeats": 20
+  }
+}

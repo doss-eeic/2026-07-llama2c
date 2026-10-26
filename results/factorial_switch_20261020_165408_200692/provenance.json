@@ -1,0 +1,9 @@
+{
+  "screening": "factorial_20261020_164542_137621",
+  "binaries": "same screening binaries",
+  "repeat": 10,
+  "seed": 1200,
+  "fusion": "QKV and FFN on",
+  "dynamic": "layer16, output32 physical rows",
+  "output_block": 1
+}

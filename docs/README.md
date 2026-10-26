@@ -4,3 +4,4 @@
 - [旧FP32版の比較](weighted-output-benchmark.md): `3bd572ed`を測った以前の記録。
 
 全ブランチから集めた docs の一覧は [collected-docs.md](collected-docs.md)。
+全ブランチから集めた結果データの一覧は [collected-results.md](collected-results.md)。

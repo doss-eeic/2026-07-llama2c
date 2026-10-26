@@ -1,0 +1,12 @@
+{
+  "config": "P4X4",
+  "mode": "output-only",
+  "wall_seconds": 0.26573490300006597,
+  "forward_calls": 222,
+  "measured_tokens": 221,
+  "forward_ms_per_token": 1.0257262895927601,
+  "forward_total": 1.0257262895927601,
+  "output": 1.0250548371040724,
+  "tokens_sha256": "2ecdc30f8af7c22d449ca777bc79e11300cbc6dcc3bbb2483f1406ae726af649",
+  "sensor_samples": 0
+}

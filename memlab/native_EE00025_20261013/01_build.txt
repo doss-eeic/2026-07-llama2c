@@ -1,0 +1,4 @@
+	libgomp.so.1 => /lib/x86_64-linux-gnu/libgomp.so.1 (0x00007ce096142000)
+weights: mode=aligned+hugepage load_ms=20 offset_mod64=0 anon_huge_kb=59392
+Once upon a time, there was a little girl named Lily. She lovedachieved tok/s: 234.375000
+

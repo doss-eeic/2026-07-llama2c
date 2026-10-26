@@ -1,0 +1,7 @@
+test_argmax_and_retained_logits (test_optimized_output.OptimizedOutputTest.test_argmax_and_retained_logits) ... ok
+test_rows_and_placement (test_weighted_output.WeightedOutputTest.test_rows_and_placement) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 2.173s
+
+OK

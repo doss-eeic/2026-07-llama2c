@@ -1,0 +1,30 @@
+{
+  "cpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    8,
+    9
+  ],
+  "threads": 8,
+  "output": "/home/denjo/2026-07-llama2c/results/distribute_20261020_150009_296759/C_fixed8/run_04",
+  "binary": "/home/denjo/2026-07-llama2c/build/run-omp",
+  "model": "/home/denjo/2026-07-llama2c/build/stories15M.bin",
+  "tokenizer": "/home/denjo/2026-07-llama2c/tokenizer.bin",
+  "steps": 256,
+  "temperature": 0.0,
+  "seed": 42,
+  "prompt": "Once upon a time",
+  "omp_dynamic": false,
+  "omp_proc_bind": "close",
+  "omp_places": null,
+  "omp_schedule": "static",
+  "output_threads": 8,
+  "output_schedule": "static",
+  "output_chunk": 0,
+  "timeout": 300,
+  "build": false
+}

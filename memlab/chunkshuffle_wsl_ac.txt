@@ -1,0 +1,60 @@
+2026-10-13T16:00:23+09:00
+EE00025
+6.6.87.2-microsoft-standard-WSL2
+AC power, Windows balanced plan, bw 1 thread ~18.8 GB/s
+pool=64MB populated after using up fragments (filler), rounds=15
+view                seq GB/s    vs id  matvec GB/s    vs id
+identity               17.17   1.000x        18.87   1.000x
+shuffle 4KB            15.58   0.907x        13.86   0.735x
+shuffle 8KB            15.89   0.926x        13.90   0.736x
+shuffle 16KB           16.15   0.941x        14.19   0.752x
+shuffle 32KB           16.44   0.957x        14.95   0.792x
+shuffle 64KB           16.85   0.981x        16.75   0.888x
+shuffle 128KB          16.94   0.986x        17.30   0.917x
+shuffle 256KB          17.09   0.996x        18.17   0.963x
+shuffle 512KB          17.15   0.999x        18.58   0.984x
+shuffle 1MB            17.23   1.004x        18.90   1.001x
+shuffle 2MB            17.30   1.008x        19.04   1.009x
+
+pool=64MB populated directly (nofill), rounds=15
+view                seq GB/s    vs id  matvec GB/s    vs id
+identity               16.62   1.000x        17.03   1.000x
+shuffle 4KB            15.10   0.908x        13.93   0.818x
+shuffle 8KB            15.48   0.931x        13.86   0.814x
+shuffle 16KB           15.69   0.944x        13.94   0.818x
+shuffle 32KB           15.85   0.953x        14.27   0.838x
+shuffle 64KB           16.12   0.970x        15.04   0.883x
+shuffle 128KB          16.35   0.984x        15.53   0.912x
+shuffle 256KB          16.25   0.978x        16.15   0.948x
+shuffle 512KB          16.53   0.995x        16.57   0.973x
+shuffle 1MB            16.56   0.997x        16.78   0.985x
+shuffle 2MB            16.47   0.991x        16.94   0.994x
+
+pool=64MB populated after using up fragments (filler), rounds=15
+view                seq GB/s    vs id  matvec GB/s    vs id
+identity               17.58   1.000x        19.35   1.000x
+shuffle 4KB            15.80   0.899x        13.96   0.721x
+shuffle 8KB            16.12   0.917x        13.98   0.723x
+shuffle 16KB           16.44   0.935x        14.33   0.741x
+shuffle 32KB           16.71   0.950x        15.31   0.791x
+shuffle 64KB           17.30   0.984x        17.60   0.909x
+shuffle 128KB          17.50   0.996x        18.53   0.958x
+shuffle 256KB          17.49   0.995x        18.94   0.979x
+shuffle 512KB          17.45   0.993x        19.11   0.988x
+shuffle 1MB            17.56   0.999x        19.47   1.007x
+shuffle 2MB            17.54   0.998x        19.27   0.996x
+
+pool=64MB populated directly (nofill), rounds=15
+view                seq GB/s    vs id  matvec GB/s    vs id
+identity               16.94   1.000x        17.34   1.000x
+shuffle 4KB            15.45   0.912x        13.91   0.802x
+shuffle 8KB            15.75   0.930x        13.90   0.802x
+shuffle 16KB           15.99   0.944x        13.98   0.806x
+shuffle 32KB           16.18   0.955x        14.39   0.830x
+shuffle 64KB           16.46   0.972x        15.24   0.879x
+shuffle 128KB          16.62   0.981x        15.84   0.913x
+shuffle 256KB          16.76   0.989x        16.55   0.955x
+shuffle 512KB          16.82   0.993x        16.86   0.972x
+shuffle 1MB            16.85   0.995x        17.20   0.992x
+shuffle 2MB            16.83   0.994x        17.32   0.999x
+

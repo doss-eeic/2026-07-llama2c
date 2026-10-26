@@ -1,0 +1,19 @@
+ed3a81dd1cdec3f8137fc076958637fec033a797
+ M analyze/time.py
+ M run
+ M runq
+?? analyze/1248threads-bench-command.txt
+?? analyze/analyze.py
+?? analyze/analyze_affinity.py
+?? analyze/analyze_l2_scaling.py
+?? analyze/uv.lock
+?? bench_affinity.sh
+?? bench_l2.sh
+?? bench_l2_scaling.sh
+?? benchmark/
+?? benchmark_affinity_stories15M/
+?? p-core-2
+?? timing-th1.log
+?? timing-th2.log
+?? timing-th4.log
+?? timing-th8.log

@@ -1,0 +1,21 @@
+{
+  "cpus": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "threads": 4,
+  "output": "/home/denjo/2026-07-llama2c/results/stay_20261020_153956_052618/Upstream_P4_HT/run_10",
+  "binary": "/home/denjo/2026-07-llama2c/build/upstream-run",
+  "model": "/home/denjo/2026-07-llama2c/build/stories15M.bin",
+  "tokenizer": "/home/denjo/2026-07-llama2c/tokenizer.bin",
+  "steps": 256,
+  "temperature": 0.0,
+  "seed": 42,
+  "prompt": "Once upon a time",
+  "p_weight": 2,
+  "timeout": 300,
+  "build": false,
+  "backend": "upstream"
+}
