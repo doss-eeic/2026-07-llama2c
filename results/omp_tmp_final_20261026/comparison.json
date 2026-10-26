@@ -1,0 +1,97 @@
+{
+  "comparisons": {
+    "best_vs_branch_best_disabled": {
+      "candidate": "7c8bebd99380",
+      "baseline": "876a1d0c733a",
+      "gain_percent": 3.6465324189490333,
+      "paired_bootstrap_95_percent": [
+        2.655657178615334,
+        4.658454647020838
+      ]
+    },
+    "same_placement_weighted_vs_disabled": {
+      "candidate": "052b98625f6d",
+      "baseline": "ecfc8a9dd03f",
+      "gain_percent": 7.133333334055725,
+      "paired_bootstrap_95_percent": [
+        5.4083885187188985,
+        8.95054820991119
+      ]
+    },
+    "weight2_vs_weight1": {
+      "candidate": "052b98625f6d",
+      "baseline": "fd480809fd21",
+      "gain_percent": 7.0222222342546825,
+      "paired_bootstrap_95_percent": [
+        5.654959146864269,
+        8.24444447497983
+      ]
+    },
+    "best_vs_master_int8": {
+      "candidate": "7c8bebd99380",
+      "baseline": "c946db886712",
+      "gain_percent": -37.22595079433062,
+      "paired_bootstrap_95_percent": [
+        -37.90015671950183,
+        -36.50864974934821
+      ]
+    },
+    "split9_10_vs_weighted10_10": {
+      "candidate": "9c2d9f1b6f0f",
+      "baseline": "7c8bebd99380",
+      "gain_percent": -4.670505441023987,
+      "paired_bootstrap_95_percent": [
+        -5.767184496889044,
+        -3.5958904115955925
+      ]
+    },
+    "best_vs_parent": {
+      "candidate": "7c8bebd99380",
+      "baseline": "f473ab42901e",
+      "gain_percent": 3.355704675313098,
+      "paired_bootstrap_95_percent": [
+        2.468312196267619,
+        4.172274546035237
+      ]
+    },
+    "default_spin_vs_spin10000": {
+      "candidate": "7c8bebd99380",
+      "baseline": "052b98625f6d",
+      "gain_percent": 0.6711409407038404,
+      "paired_bootstrap_95_percent": [
+        -0.46625221774100334,
+        1.94109772876645
+      ]
+    }
+  },
+  "total_runs": 652,
+  "final_runs": 300,
+  "all_stdout_sha256": [
+    "aed31b5dccc53ec57b969b614bb701d6c270b30bb2d9eb75061af2360b4e2658"
+  ],
+  "ac_states": [
+    "1"
+  ],
+  "final_rounds_tokens_per_second": [
+    1045.4115420465835,
+    1043.1088735731514,
+    1050.0475134099836,
+    1035.6138706508555,
+    1051.3796383507347,
+    1048.0556433784259,
+    1051.7131978869752,
+    1049.3827160242251,
+    1050.3802279799659,
+    1054.7247853204344,
+    1053.0495553132446,
+    1035.6138705520548,
+    1063.5226178040507,
+    1064.2054574880171,
+    1064.8891743089175,
+    1058.4291188665725,
+    1064.5472060439693,
+    1060.1215221516647,
+    1058.0912863100461,
+    1062.1595642641125
+  ]
+}

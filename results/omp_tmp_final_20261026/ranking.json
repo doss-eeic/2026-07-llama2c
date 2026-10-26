@@ -1,0 +1,468 @@
+[
+  {
+    "case": "c946db886712",
+    "config": {
+      "cpus": [
+        1,
+        2,
+        3,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11
+      ],
+      "layer": 9,
+      "output": 0,
+      "p": 0,
+      "weight": 2,
+      "spin": null,
+      "wait": "ACTIVE",
+      "variant": "main_int8",
+      "schedule": "guided,16"
+    },
+    "repeats": 20,
+    "tokens_per_second": 1575.1960086616425,
+    "arithmetic_mean_tokens_per_second": 1575.57841895,
+    "ms_per_token": 0.634841628915531,
+    "stdev_ms": 0.010181657010444831,
+    "min_tokens_per_second": 1513.69863,
+    "max_tokens_per_second": 1625.0
+  },
+  {
+    "case": "5834e916ab8a",
+    "config": {
+      "cpus": [
+        0,
+        2,
+        3,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11
+      ],
+      "layer": 9,
+      "output": 0,
+      "p": 0,
+      "weight": 2,
+      "spin": null,
+      "wait": "ACTIVE",
+      "variant": "main_int8",
+      "schedule": "guided,16"
+    },
+    "repeats": 20,
+    "tokens_per_second": 1560.1835509985074,
+    "arithmetic_mean_tokens_per_second": 1561.1334718,
+    "ms_per_token": 0.6409502262474223,
+    "stdev_ms": 0.01623359700201992,
+    "min_tokens_per_second": 1473.333333,
+    "max_tokens_per_second": 1637.037037
+  },
+  {
+    "case": "b029f563859d",
+    "config": {
+      "cpus": [
+        0,
+        1,
+        2,
+        3,
+        6,
+        7,
+        9,
+        10,
+        11
+      ],
+      "layer": 9,
+      "output": 0,
+      "p": 0,
+      "weight": 2,
+      "spin": null,
+      "wait": "ACTIVE",
+      "variant": "main_int8",
+      "schedule": "guided,16"
+    },
+    "repeats": 20,
+    "tokens_per_second": 1545.9951032223494,
+    "arithmetic_mean_tokens_per_second": 1547.3919276,
+    "ms_per_token": 0.646832579169028,
+    "stdev_ms": 0.02073433741607284,
+    "min_tokens_per_second": 1381.25,
+    "max_tokens_per_second": 1589.928058
+  },
+  {
+    "case": "652bfdc35317",
+    "config": {
+      "cpus": [
+        0,
+        1,
+        2,
+        3,
+        6,
+        7,
+        9,
+        10,
+        11
+      ],
+      "layer": 9,
+      "output": 0,
+      "p": 0,
+      "weight": 2,
+      "spin": null,
+      "wait": null,
+      "variant": "main_int8",
+      "schedule": "static"
+    },
+    "repeats": 20,
+    "tokens_per_second": 1166.8426610152105,
+    "arithmetic_mean_tokens_per_second": 1168.9920078,
+    "ms_per_token": 0.8570135746750558,
+    "stdev_ms": 0.03837809476786411,
+    "min_tokens_per_second": 1062.5,
+    "max_tokens_per_second": 1227.777778
+  },
+  {
+    "case": "f661fc474b5c",
+    "config": {
+      "cpus": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "layer": 8,
+      "output": 0,
+      "p": 0,
+      "weight": 2,
+      "spin": 10000,
+      "wait": "ACTIVE",
+      "variant": "main_fp32_huge",
+      "schedule": "static"
+    },
+    "repeats": 20,
+    "tokens_per_second": 1000.9057971246602,
+    "arithmetic_mean_tokens_per_second": 1000.9747307499999,
+    "ms_per_token": 0.9990950226012654,
+    "stdev_ms": 0.008509725816565061,
+    "min_tokens_per_second": 986.607143,
+    "max_tokens_per_second": 1013.761468
+  },
+  {
+    "case": "7c8bebd99380",
+    "config": {
+      "cpus": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "layer": 10,
+      "output": 10,
+      "p": 2,
+      "weight": 2,
+      "spin": null,
+      "wait": "ACTIVE",
+      "variant": "weighted",
+      "schedule": "static"
+    },
+    "repeats": 20,
+    "tokens_per_second": 988.8143175629996,
+    "arithmetic_mean_tokens_per_second": 989.07050555,
+    "ms_per_token": 1.01131221730746,
+    "stdev_ms": 0.016834832491503828,
+    "min_tokens_per_second": 948.497854,
+    "max_tokens_per_second": 1013.761468
+  },
+  {
+    "case": "052b98625f6d",
+    "config": {
+      "cpus": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "layer": 10,
+      "output": 10,
+      "p": 2,
+      "weight": 2,
+      "spin": 10000,
+      "wait": "ACTIVE",
+      "variant": "weighted",
+      "schedule": "static"
+    },
+    "repeats": 20,
+    "tokens_per_second": 982.2222221017836,
+    "arithmetic_mean_tokens_per_second": 982.8260867500001,
+    "ms_per_token": 1.01809954763615,
+    "stdev_ms": 0.02630258535927014,
+    "min_tokens_per_second": 920.833333,
+    "max_tokens_per_second": 1009.13242
+  },
+  {
+    "case": "d513ca3f8aab",
+    "config": {
+      "cpus": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "layer": 8,
+      "output": 0,
+      "p": 0,
+      "weight": 2,
+      "spin": 10000,
+      "wait": "ACTIVE",
+      "variant": "main_fp32",
+      "schedule": "static"
+    },
+    "repeats": 20,
+    "tokens_per_second": 978.959025401682,
+    "arithmetic_mean_tokens_per_second": 979.37330175,
+    "ms_per_token": 1.0214932127416514,
+    "stdev_ms": 0.02181821441046733,
+    "min_tokens_per_second": 932.489451,
+    "max_tokens_per_second": 1000.0
+  },
+  {
+    "case": "52a3ae1a4561",
+    "config": {
+      "cpus": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "layer": 10,
+      "output": 10,
+      "p": 2,
+      "weight": 2,
+      "spin": 1000,
+      "wait": "ACTIVE",
+      "variant": "weighted",
+      "schedule": "static"
+    },
+    "repeats": 20,
+    "tokens_per_second": 974.2120344178061,
+    "arithmetic_mean_tokens_per_second": 974.6549609,
+    "ms_per_token": 1.0264705881996263,
+    "stdev_ms": 0.023085326789164903,
+    "min_tokens_per_second": 898.373984,
+    "max_tokens_per_second": 1000.0
+  },
+  {
+    "case": "f473ab42901e",
+    "config": {
+      "cpus": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "layer": 8,
+      "output": 0,
+      "p": 0,
+      "weight": 2,
+      "spin": 10000,
+      "wait": "ACTIVE",
+      "variant": "upstream",
+      "schedule": "static"
+    },
+    "repeats": 20,
+    "tokens_per_second": 956.7099568130386,
+    "arithmetic_mean_tokens_per_second": 956.8632466,
+    "ms_per_token": 1.045248868665659,
+    "stdev_ms": 0.013771690853003912,
+    "min_tokens_per_second": 913.22314,
+    "max_tokens_per_second": 969.298246
+  },
+  {
+    "case": "876a1d0c733a",
+    "config": {
+      "cpus": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "layer": 8,
+      "output": 0,
+      "p": 0,
+      "weight": 2,
+      "spin": 10000,
+      "wait": "ACTIVE",
+      "variant": "weighted",
+      "schedule": "static"
+    },
+    "repeats": 20,
+    "tokens_per_second": 954.0254695315026,
+    "arithmetic_mean_tokens_per_second": 954.2971903,
+    "ms_per_token": 1.0481900451683688,
+    "stdev_ms": 0.018352307684384214,
+    "min_tokens_per_second": 913.22314,
+    "max_tokens_per_second": 969.298246
+  },
+  {
+    "case": "d1df64e59ba2",
+    "config": {
+      "cpus": [
+        0,
+        2,
+        1,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "layer": 8,
+      "output": 0,
+      "p": 0,
+      "weight": 2,
+      "spin": null,
+      "wait": "ACTIVE",
+      "variant": "weighted",
+      "schedule": "static"
+    },
+    "repeats": 20,
+    "tokens_per_second": 950.3332617640417,
+    "arithmetic_mean_tokens_per_second": 950.6279393,
+    "ms_per_token": 1.0522624433283174,
+    "stdev_ms": 0.019224113837244188,
+    "min_tokens_per_second": 909.465021,
+    "max_tokens_per_second": 969.298246
+  },
+  {
+    "case": "9c2d9f1b6f0f",
+    "config": {
+      "cpus": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "layer": 9,
+      "output": 10,
+      "p": 2,
+      "weight": 2,
+      "spin": null,
+      "wait": "ACTIVE",
+      "variant": "weighted",
+      "schedule": "static"
+    },
+    "repeats": 20,
+    "tokens_per_second": 942.6316910595955,
+    "arithmetic_mean_tokens_per_second": 943.02227465,
+    "ms_per_token": 1.0608597286559693,
+    "stdev_ms": 0.02243190295985786,
+    "min_tokens_per_second": 894.736842,
+    "max_tokens_per_second": 969.298246
+  },
+  {
+    "case": "fd480809fd21",
+    "config": {
+      "cpus": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "layer": 10,
+      "output": 10,
+      "p": 2,
+      "weight": 1,
+      "spin": 10000,
+      "wait": "ACTIVE",
+      "variant": "weighted",
+      "schedule": "static"
+    },
+    "repeats": 20,
+    "tokens_per_second": 917.7740861630166,
+    "arithmetic_mean_tokens_per_second": 918.12205465,
+    "ms_per_token": 1.089592760437102,
+    "stdev_ms": 0.022341647792789642,
+    "min_tokens_per_second": 853.281853,
+    "max_tokens_per_second": 932.489451
+  },
+  {
+    "case": "ecfc8a9dd03f",
+    "config": {
+      "cpus": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "layer": 10,
+      "output": 0,
+      "p": 0,
+      "weight": 2,
+      "spin": 10000,
+      "wait": "ACTIVE",
+      "variant": "weighted",
+      "schedule": "static"
+    },
+    "repeats": 20,
+    "tokens_per_second": 916.8222359320104,
+    "arithmetic_mean_tokens_per_second": 917.35651105,
+    "ms_per_token": 1.0907239820415502,
+    "stdev_ms": 0.027522833530537787,
+    "min_tokens_per_second": 853.281853,
+    "max_tokens_per_second": 936.440678
+  }
+]
