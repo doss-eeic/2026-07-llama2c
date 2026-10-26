@@ -26,6 +26,9 @@ class BenchmarkConfig:
     optimize_weights: bool = False  # Trueなら重みを2MiB境界に揃えTHPを要求
     two_stage_argmax: bool = False  # -a 1、greedy生成用
     group_size: int = 144  # -g、モデルのdimを割り切る値
+    # -b / -c、出力層以外と出力層のCPU（両方を指定する。スレッド数はそれぞれのCPUの数、cpusは両方を合わせたもの）
+    body_cpus: tuple[int, ...] | None = None
+    cls_cpus: tuple[int, ...] | None = None
     timeout: float = 300
 
     def __post_init__(self):
@@ -33,3 +36,13 @@ class BenchmarkConfig:
             raise ValueError("omp_wait_policy must be ACTIVE, PASSIVE or None")
         if self.gomp_spincount is not None and (not isinstance(self.gomp_spincount, int) or self.gomp_spincount < 0):
             raise ValueError("gomp_spincount must be a nonnegative integer or None")
+        if (self.body_cpus is None) != (self.cls_cpus is None):
+            raise ValueError("body_cpus and cls_cpus must be given together")
+        if self.body_cpus is not None and not (self.body_cpus and self.cls_cpus
+                                               and set(self.body_cpus) | set(self.cls_cpus) <= set(self.cpus)):
+            raise ValueError("body_cpus and cls_cpus must be nonempty and within cpus")
+
+    @property
+    def uses_sections(self) -> bool:
+        # 出力層とそれ以外で CPU を分けるか（-b / -c）
+        return self.body_cpus is not None

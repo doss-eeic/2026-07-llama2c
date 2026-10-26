@@ -65,7 +65,7 @@ static void classifier_int8(float* logits, float* x, float* wcls, int n, int d) 
     }
     // Finite sentinel: -Ofast permits optimizing away comparisons with infinities.
     float L = -FLT_MAX;
-    #pragma omp parallel for schedule(runtime) reduction(max:L)
+    #pragma omp parallel for schedule(runtime) reduction(max:L) num_threads(section_num_threads())
     for (int i = 0; i < d; i++) {
         const int8_t* q = cls.q + (size_t)i * n;
         const float* sc = cls.s + (size_t)i * ng;

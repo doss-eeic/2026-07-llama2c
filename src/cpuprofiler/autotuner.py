@@ -52,11 +52,13 @@ class AutoTuner:
                 representatives[key] = (cpus, (*counts, len(cpus) / len(available)))
         return dict(representatives.values())
 
-    def kasikoi_serch(self, config=None, budget=56, top_k=3, repeats=3, seed=42):
+    def kasikoi_serch(self, config=None, budget=56, top_k=3, repeats=3, seed=42, split=False):
         """人数全域→近傍探索→schedule/g調整→独立確認。最良の平均結果を返す。
 
         budgetは探索測定数。別途warmup1回と上位＋基準構成をrepeats回ずつ測る。
         configの最適化・モデル入力設定を維持し、層内と出力を同人数にする。
+        split=Trueなら近傍探索の後に、最良の配置から出力層→出力層以外の順に
+        CPUを分ける構成（-b / -c）も探す。近傍探索をbudgetの1/2、分割をbudgetの3/4までに減らす。
         """
         started, history_start = time.perf_counter(), len(self.history)
         cpus = tuple(sorted(self.topology.cpus))
@@ -83,7 +85,7 @@ class AutoTuner:
                 mask = tuple(sorted(config.cpus))  # 既知の固定構成も残す
             layouts[mask] = measure(make(mask)).ms_per_token
 
-        cpu_budget = max(len(cpus), budget * 3 // 4)
+        cpu_budget = max(len(cpus), budget // 2 if split else budget * 3 // 4)
         while len(measured) < cpu_budget:
             remaining = [mask for mask in candidates if mask not in layouts]
             if not remaining:
@@ -105,13 +107,47 @@ class AutoTuner:
             mask = rng.choice(remaining) if len(measured) % 5 == 0 else min(pool, key=predict)
             layouts[mask] = measure(make(mask)).ms_per_token
 
+        if split:
+            def make_split(body, cls):
+                return replace(config, cpus=tuple(sorted(set(body) | set(cls))), threads=len(body),
+                               omp_places=None, body_cpus=body, cls_cpus=cls)
+
+            def near(mask):
+                # 2個以内の入れ替えで作れる配置と、測った上位の配置を、順番の偏りなく試す
+                masks = [other for other in candidates if len(set(other) ^ set(mask)) <= 2]
+                masks += sorted(layouts, key=layouts.get)[:top_k]
+                masks = [other for other in dict.fromkeys(masks) if other != mask]
+                rng.shuffle(masks)
+                return masks
+
+            body = cls = min(layouts, key=layouts.get)
+            best = layouts[body]
+            split_budget = max(len(measured), budget * 3 // 4)
+            half = len(measured) + (split_budget - len(measured)) // 2
+            # 出力層以外を最良の配置に固定して出力層を探し、次に見つけた出力層に固定して出力層以外を探す
+            for stage, limit in (("cls", half), ("body", split_budget)):
+                for mask in near(cls if stage == "cls" else body):
+                    if len(measured) >= limit:
+                        break
+                    case = make_split(body, mask) if stage == "cls" else make_split(mask, cls)
+                    if case in measured:
+                        continue
+                    ms = measure(case).ms_per_token
+                    if ms < best:
+                        best = ms
+                        if stage == "cls":
+                            cls = mask
+                        else:
+                            body = mask
+
         groups = [config.group_size]
         if config.two_stage_argmax and len(measured) < budget:
             with self.runner.model_path.open("rb") as model:
                 dim, = struct.unpack("i", model.read(4))
             groups += [g for g in (96, 144, 288) if dim % g == 0]
-        tuning = [replace(make(mask), omp_schedule=schedule, group_size=g)
-                  for mask in sorted(layouts, key=layouts.get)[:top_k]
+        # 上位の構成（splitならCPUを分けた構成も含む）のscheduleとgを変えて試す
+        tuning = [replace(case, omp_schedule=schedule, group_size=g)
+                  for case in sorted(measured, key=lambda case: measured[case].ms_per_token)[:top_k]
                   for schedule in dict.fromkeys((config.omp_schedule, "static", "dynamic,16", "dynamic,64"))
                   for g in dict.fromkeys(groups)]
         rng.shuffle(tuning)

@@ -77,8 +77,13 @@ class BenchmarkRunner:
         env["OMP_DYNAMIC"] = (
             "TRUE" if config.omp_dynamic else "FALSE"
         )
-        env["OMP_PROC_BIND"] = config.omp_proc_bind
-        env["OMP_PLACES"] = config.omp_places or ",".join(f"{{{cpu}}}" for cpu in config.cpus)
+        if config.uses_sections:
+            # OMP_PROC_BIND が有効だと libgomp がスレッドを並べ替えるので、run.c の -b / -c はエラーになる。
+            # CPU への固定は run.c が行う
+            env["OMP_PROC_BIND"] = "false"
+        else:
+            env["OMP_PROC_BIND"] = config.omp_proc_bind
+            env["OMP_PLACES"] = config.omp_places or ",".join(f"{{{cpu}}}" for cpu in config.cpus)
 
         if config.omp_wait_policy is not None:
             env["OMP_WAIT_POLICY"] = config.omp_wait_policy.upper()
@@ -103,6 +108,9 @@ class BenchmarkRunner:
             command += ["-w", "1"]
         if config.two_stage_argmax:
             command += ["-a", "1", "-g", str(config.group_size)]
+        if config.uses_sections:
+            command += ["-b", ",".join(map(str, config.body_cpus)),
+                        "-c", ",".join(map(str, config.cls_cpus))]
 
         result = subprocess.run(
             command,

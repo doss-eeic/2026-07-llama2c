@@ -3,7 +3,7 @@
 CC = gcc
 CPPFLAGS ?= -I.
 RUN_SRC = run/run.c
-RUN_HEADERS = src/fused.h src/classifier.h
+RUN_HEADERS = src/fused.h src/classifier.h src/sections.h
 
 # the most basic way of building that is most likely to work on most systems
 .PHONY: run
