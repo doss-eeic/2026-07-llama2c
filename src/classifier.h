@@ -102,9 +102,9 @@ static void classifier_int8(float* logits, float* x, float* wcls, int n, int d) 
         static ClsJob job;
         job.logits = logits; job.x = x; job.A = A; job.n = n;
         pool_run(cls_int8_rows, &job, d);
-        for (int r = 0; r < pool_n; r++) { if (job.L[r] > L) { L = job.L[r]; } }
+        for (int r = 0; r < pool_threads(); r++) { if (job.L[r] > L) { L = job.L[r]; } }
     } else {
-        #pragma omp parallel for schedule(runtime) reduction(max:L)
+        #pragma omp parallel for schedule(runtime) reduction(max:L) num_threads(section_num_threads())
         for (int i = 0; i < d; i++) {
             float lo = cls_int8_row(logits, x, A, n, i);
             if (lo > L) { L = lo; }

@@ -77,9 +77,9 @@ class BenchmarkRunner:
         env["OMP_DYNAMIC"] = (
             "TRUE" if config.omp_dynamic else "FALSE"
         )
-        if config.workers == "pool":
-            # OMP_PROC_BIND が有効だと libgomp がメインスレッドを 1 つの CPU に固定し、
-            # run.c が taskset の CPU を読めなくなる（-x pool はエラーになる）
+        if config.workers == "pool" or config.uses_sections:
+            # OMP_PROC_BIND が有効だと libgomp がメインスレッドを 1 つの CPU に固定し、スレッドの並びも変わるので、
+            # run.c の -x pool と -b / -c はエラーになる。CPU への固定は run.c が行う
             env["OMP_PROC_BIND"] = "false"
         else:
             env["OMP_PROC_BIND"] = config.omp_proc_bind
@@ -111,6 +111,9 @@ class BenchmarkRunner:
         # -x 非対応のバイナリでも動くよう、omp のときは渡さない
         if config.workers == "pool":
             command += ["-x", "pool"]
+        if config.uses_sections:
+            command += ["-b", ",".join(map(str, config.body_cpus)),
+                        "-c", ",".join(map(str, config.cls_cpus))]
 
         result = subprocess.run(
             command,

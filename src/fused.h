@@ -24,7 +24,7 @@ static void matmul_qkv(float *q, float *k, float *v, float *x,
                        float *wq, float *wk, float *wv, int dim, int kv_dim) {
     QkvJob job = { q, k, v, x, wq, wk, wv, dim, kv_dim };
     if (pool_on) { pool_run(qkv_rows, &job, dim + 2 * kv_dim); return; }
-    #pragma omp parallel for schedule(runtime)
+    #pragma omp parallel for schedule(runtime) num_threads(section_num_threads())
     for (int row = 0; row < dim + 2 * kv_dim; row++) { qkv_rows(&job, row, row + 1, 0); }
 }
 
@@ -49,6 +49,6 @@ static void ffn_up_gate(float *hb, float *hb2, float *x, float *up, float *gate,
                         int dim, int hidden_dim) {
     UpGateJob job = { hb, hb2, x, up, gate, dim };
     if (pool_on) { pool_run(up_gate_rows, &job, hidden_dim); return; }
-    #pragma omp parallel for schedule(runtime)
+    #pragma omp parallel for schedule(runtime) num_threads(section_num_threads())
     for (int i = 0; i < hidden_dim; i++) { up_gate_rows(&job, i, i + 1, 0); }
 }

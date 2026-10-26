@@ -35,12 +35,13 @@ def main(*args):
     elif sys.argv[1] == "kasikoi":
         print("Running kasikoi search...")
         topology = CPUTopology()
+        split = "--split" in sys.argv  # 出力層とそれ以外の CPU（run.c の -b / -c）も探す
         tuner = AutoTuner(topology, BenchmarkRunner())
         config = BenchmarkConfig(
             cpus=tuple(topology.cpus), threads=topology.n_logical_cpus,
             optimize_weights=True, two_stage_argmax=True, workers=workers,
         )
-        best_result = tuner.kasikoi_serch(config)
+        best_result = tuner.kasikoi_serch(config, split=split)
         print(f"Best configuration: {best_result.config}")
         print(f"Best performance: {best_result.tokens_per_second:.2f} tokens/sec")
         print(f"Search: {tuner.last_search['seconds']:.2f} sec, "

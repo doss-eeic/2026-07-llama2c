@@ -260,7 +260,7 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
         return;
     }
     int i;
-    #pragma omp parallel for private(i) schedule(runtime)
+    #pragma omp parallel for private(i) schedule(runtime) num_threads(section_num_threads())
     for (i = 0; i < d; i++) {
         xout[i] = dot_f32(w + (size_t)i * n, x, n);
     }
@@ -331,6 +331,8 @@ float* forward(Transformer* transformer, int token, int pos) {
     int hidden_dim =  p->hidden_dim;
     int head_size = dim / p->n_heads;
 
+    enter_section(SEC_BODY);
+
     // copy the token embedding into x
     float* content_row = w->token_embedding_table + token * dim;
     memcpy(x, content_row, dim*sizeof(*x));
@@ -373,7 +375,7 @@ float* forward(Transformer* transformer, int token, int pos) {
             pool_run(attention_heads, &att_job, p->n_heads);
         } else {
             int h;
-            #pragma omp parallel for private(h)
+            #pragma omp parallel for private(h) num_threads(section_num_threads())
             for (h = 0; h < p->n_heads; h++) { attention_heads(&att_job, h, h + 1, 0); }
         }
 
@@ -406,6 +408,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     rmsnorm(x, x, w->rms_final_weight, dim);
 
     // classifier into logits
+    enter_section(SEC_CLS);
     if (cls.enabled) { classifier_int8(s->logits, x, w->wcls, p->dim, p->vocab_size); }
     else { matmul(s->logits, x, w->wcls, p->dim, p->vocab_size); }
     return s->logits;
@@ -954,6 +957,9 @@ void error_usage() {
     fprintf(stderr, "  -a <int>    output layer: 0=fp32 (default) 1=int8 + fp32 argmax (-t 0)\n");
     fprintf(stderr, "  -g <int>    int8 group size, divides dim, default 144\n");
     fprintf(stderr, "  -x <string> workers: omp (default) | pool = one pinned thread per CPU at startup (taskset)\n");
+    fprintf(stderr, "  -b <string> (optional) CPUs for all but the output layer, e.g. 0,2,4-7 (1 thread per CPU)\n");
+    fprintf(stderr, "  -c <string> (optional) CPUs for the output layer, same format; give -b and -c together\n");
+    fprintf(stderr, "              -x pool and -b / -c need OMP_PROC_BIND=false\n");
     exit(EXIT_FAILURE);
 }
 
@@ -972,6 +978,8 @@ int main(int argc, char *argv[]) {
     int classifier_mode = 0, group_size = 144;
     int optimize_weights = 0; // copy weights to aligned hugepage memory when enabled
     char *workers = "omp";    // parallel regions: omp (OpenMP) | pool (one pinned thread per CPU)
+    char *body_cpus = NULL;   // optional CPUs for all but the output layer (-b), given with -c
+    char *cls_cpus = NULL;    // optional CPUs for the output layer (-c), given with -b
 
     // poor man's C argparse so we can override the defaults above from the command line
     if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
@@ -993,6 +1001,8 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'g') { group_size = atoi(argv[i + 1]); }
         else if (argv[i][1] == 'w') { optimize_weights = atoi(argv[i + 1]); }
         else if (argv[i][1] == 'x') { workers = argv[i + 1]; }
+        else if (argv[i][1] == 'b') { body_cpus = argv[i + 1]; }
+        else if (argv[i][1] == 'c') { cls_cpus = argv[i + 1]; }
         else { error_usage(); }
     }
 
@@ -1023,8 +1033,8 @@ int main(int argc, char *argv[]) {
                          transformer.config.vocab_size, group_size, optimize_weights);
     }
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
-    // 出力層の初期化（OpenMP）が終わってから作る。ワーカーはプロセスが終わるまでスピンし続ける
-    if (strcmp(workers, "pool") == 0) { pool_start(); }
+    // 出力層の初期化（OpenMP）が終わってから作る。pool のワーカーはプロセスが終わるまでスピンし続ける
+    setup_workers(workers, body_cpus, cls_cpus);
 
     // build the Tokenizer via the tokenizer .bin file
     Tokenizer tokenizer;
