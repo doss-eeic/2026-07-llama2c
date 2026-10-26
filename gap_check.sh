@@ -14,10 +14,12 @@
 # Power profile "performance" for the whole run, restored at the end. No clone, no sudo.
 # usage:
 #   curl -fsSL https://raw.githubusercontent.com/doss-eeic/2026-07-llama2c/dev/sakurada/gap_check.sh -o gap_check.sh && bash gap_check.sh
-# options (env): PHASES="cool hot recover" COOL_BLOCKS=30 HOT_BLOCKS=30 RECOVER_BLOCKS=15
-#                INITIAL_REST=180 (s, before measuring the idle temperature)  COOL_TEMP=idle+COOL_MARGIN (C)
-#                COOL_MARGIN=8  REST_MIN=20 (s, minimum rest before a cool block)  COOL_MAX=300 (s, longest wait)
-#                HEAT_SECS=300 (s of continuous load before the hot phase)  NOTE=free text  MODEL=path DIR=work dir
+# about 30-45 min with the defaults (19 candidates x 50 blocks; most of the time is resting)
+# options (env): PHASES="cool hot recover" COOL_BLOCKS=20 HOT_BLOCKS=20 RECOVER_BLOCKS=10
+#                INITIAL_REST=120 (s, before measuring the idle temperature)  COOL_TEMP=idle+COOL_MARGIN (C)
+#                COOL_MARGIN=8  REST_MIN=15 (s, minimum rest before a cool block)  COOL_MAX=60 (s, longest wait)
+#                RECOVER_WAIT=300 (s, longest wait before the first recover block)
+#                HEAT_SECS=180 (s of continuous load before the hot phase)  NOTE=free text  MODEL=path DIR=work dir
 #                FORCE=1 (run without AC power / without switching the profile)
 set -uo pipefail
 export LC_ALL=C
@@ -27,14 +29,15 @@ C_PT=f0e4ffbb58ec8e15243509a3f0604674a2fb7379
 C_SCRIPT=dev/sakurada
 DIR="${DIR:-$HOME/llama_gap}"
 PHASES="${PHASES:-cool hot recover}"
-COOL_BLOCKS="${COOL_BLOCKS:-30}"
-HOT_BLOCKS="${HOT_BLOCKS:-30}"
-RECOVER_BLOCKS="${RECOVER_BLOCKS:-15}"
-INITIAL_REST="${INITIAL_REST:-180}"
+COOL_BLOCKS="${COOL_BLOCKS:-20}"
+HOT_BLOCKS="${HOT_BLOCKS:-20}"
+RECOVER_BLOCKS="${RECOVER_BLOCKS:-10}"
+INITIAL_REST="${INITIAL_REST:-120}"
 COOL_MARGIN="${COOL_MARGIN:-8}"
-REST_MIN="${REST_MIN:-20}"
-COOL_MAX="${COOL_MAX:-300}"
-HEAT_SECS="${HEAT_SECS:-300}"
+REST_MIN="${REST_MIN:-15}"
+COOL_MAX="${COOL_MAX:-60}"
+RECOVER_WAIT="${RECOVER_WAIT:-300}"
+HEAT_SECS="${HEAT_SECS:-180}"
 mkdir -p "$DIR/src/upstream" "$DIR/src/team/run" "$DIR/src/team/src" "$DIR/src/pt/src"
 cd "$DIR"
 OUT="$DIR/results_$(hostname)_gap_$(date +%Y%m%d_%H%M%S)"
@@ -50,20 +53,16 @@ PE12=0,1,2,3,4,5,6,7,8,9,10,11   # every P/E thread except LP-E
 CANDIDATES=(
   "B_up_P4|up|0,1,2,3|-|default|static|-|original code, P-cores (baseline)"
 )
-for s in static dynamic,4 dynamic,16 guided,1 guided,4 guided,16 guided,64; do
+for s in static dynamic,16 guided,1 guided,4 guided,16; do
   t="${s/dynamic,/dyn}"; t="${t/guided,/gd}"
   CANDIDATES+=("S_N9_$t|team|$N9|-|ACTIVE|$s|288|team 9 CPUs, schedule sweep")
   CANDIDATES+=("S_PE12_$t|team|$PE12|-|ACTIVE|$s|288|all 12 threads, schedule sweep")
 done
 CANDIDATES+=(
-  "G_N9_gd4_g144|team|$N9|-|ACTIVE|guided,4|144|-g 144"
   "G_PE12_static_g144|team|$PE12|-|ACTIVE|static|144|-g 144 (rigorous_check C07)"
   "X_PE10_gd4|team|0,2,4,5,6,7,8,9,10,11|-|ACTIVE|guided,4|288|P x1 + all 8 E"
-  "X_PE10_static|team|0,2,4,5,6,7,8,9,10,11|-|ACTIVE|static|288|P x1 + all 8 E"
   "X_T9b_gd16|team|1,2,3,5,6,7,8,10,11|-|ACTIVE|guided,16|288|check_top #2 (omp-tmp 1575)"
-  "X_T9b_static|team|1,2,3,5,6,7,8,10,11|-|ACTIVE|static|288|check_top #2"
   "X_LP12_gd4|team|0,2,4,5,6,7,8,9,10,11,12,13|-|ACTIVE|guided,4|288|12 physical cores incl. LP-E (team -10.6%)"
-  "X_LP12_static|team|0,2,4,5,6,7,8,9,10,11,12,13|-|ACTIVE|static|288|12 physical cores incl. LP-E"
   "W_N9_gd4_def|team|$N9|-|default|guided,4|288|9 CPUs without ACTIVE"
   "W_PE12_static_def|team|$PE12|-|default|static|288|12 threads without ACTIVE"
   "P_9to10_gd4|pt|0,2,4,5,6,7,8,9,10,11|9|ACTIVE|guided,4|288|team recommendation: persistent, layers 9 -> output 10"
@@ -145,7 +144,7 @@ now_s() { date +%s.%N; }
 {
   echo "start=$(date -Is) host=$(hostname) note=${NOTE:-}"
   echo "phases=$PHASES cool_blocks=$COOL_BLOCKS hot_blocks=$HOT_BLOCKS recover_blocks=$RECOVER_BLOCKS"
-  echo "initial_rest=$INITIAL_REST cool_margin=$COOL_MARGIN cool_temp_given=${COOL_TEMP:-} rest_min=$REST_MIN cool_max=$COOL_MAX heat_secs=$HEAT_SECS"
+  echo "initial_rest=$INITIAL_REST cool_margin=$COOL_MARGIN cool_temp_given=${COOL_TEMP:-} rest_min=$REST_MIN cool_max=$COOL_MAX recover_wait=$RECOVER_WAIT heat_secs=$HEAT_SECS"
   echo "ac_online=$ac supplies=$(supplies) original_profile=${orig:-n/a} profile=$(powerprofilesctl get 2>/dev/null || echo n/a)"
   echo "epp=$(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null)" \
        "governor=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)" \
@@ -217,15 +216,15 @@ run_block() { # phase block wait_s
 }
 
 WAITED=0
-wait_cool() { # rest REST_MIN, then until two readings in a row are <= COOL_TEMP (at most COOL_MAX s)
-  local start below=0 t
+wait_cool() { # rest REST_MIN, then until two readings in a row are <= COOL_TEMP (at most $1 s, default COOL_MAX)
+  local start below=0 t max="${1:-$COOL_MAX}"
   start=$(date +%s)
   sleep "$REST_MIN"
   while :; do
     t=$(max_temp)
     if (( t <= COOL_TEMP )); then below=$((below + 1)); else below=0; fi
     (( below >= 2 )) && break
-    if (( $(date +%s) - start >= COOL_MAX )); then log "    still ${t} C after ${COOL_MAX}s (target ${COOL_TEMP} C); measuring anyway"; break; fi
+    if (( $(date +%s) - start >= max )); then log "    still ${t} C after ${max}s (target ${COOL_TEMP} C); measuring anyway"; break; fi
     sleep 3
   done
   WAITED=$(( $(date +%s) - start ))
@@ -261,7 +260,7 @@ log "idle temperature ${IDLE_TEMP} C -> cool blocks start at <= ${COOL_TEMP} C"
 
 total=0; for ph in $PHASES; do total=$((total + $(phase_blocks "$ph"))); done
 done_blocks=0; T_START=$(date +%s)
-log "${#CANDIDATES[@]} candidates per block, $total blocks in phases: $PHASES"
+log "${#CANDIDATES[@]} candidates per block, $total blocks in phases: $PHASES (about 30-45 min from here)"
 
 # ---------------------------------------------------------------- phases
 for ph in $PHASES; do
@@ -271,7 +270,7 @@ for ph in $PHASES; do
       echo "$ph" > "$OUT/.phase"
       log "phase $ph: $nb blocks, each after resting to <= ${COOL_TEMP} C"
       for ((b = 1; b <= nb; b++)); do
-        wait_cool
+        if [[ "$ph" == recover && $b == 1 ]]; then wait_cool "$RECOVER_WAIT"; else wait_cool; fi
         run_block "$ph" "$b" "$WAITED"
         done_blocks=$((done_blocks + 1))
         el=$(( $(date +%s) - T_START ))
@@ -395,7 +394,6 @@ Q = [
     ("Q3 9: guided,4 / static", "S_N9_gd4", "S_N9_static"),
     ("Q3 12: guided,16 / static", "S_PE12_gd16", "S_PE12_static"),
     ("Q4 12 static: g144 / g288", "G_PE12_static_g144", "S_PE12_static"),
-    ("Q4 9 guided,4: g144 / g288", "G_N9_gd4_g144", "S_N9_gd4"),
     ("Q5 LP-E 12 guided,4 / 9 guided,4", "X_LP12_gd4", "S_N9_gd4"),
     ("Q6 ACTIVE effect, 9 guided,4", "S_N9_gd4", "W_N9_gd4_def"),
     ("Q6 ACTIVE effect, 12 static", "S_PE12_static", "W_PE12_static_def"),
@@ -418,7 +416,7 @@ for ph in PH:
         print(f"  best schedule each ({ph}): {b12} / {b9}  {fmt_pair(paired(ph, b12, b9))}")
 
 print("\n== schedule curve: median tok/s relative to the same CPU set with static ==")
-scheds = ["static", "dyn4", "dyn16", "gd1", "gd4", "gd16", "gd64"]
+scheds = ["static", "dyn16", "gd1", "gd4", "gd16"]
 for ph in PH:
     print(f"  phase {ph}: {'':<6}" + "".join(f"{s:>8}" for s in scheds))
     for cs in ("N9", "PE12"):
