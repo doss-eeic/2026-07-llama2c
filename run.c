@@ -236,19 +236,25 @@ void softmax(float* x, int size) {
     }
 }
 
+#include "src/omp_pool.h"
 #include "src/classifier.h"
 
+typedef struct { float *out, *x, *w; int n; } MatmulRows;
+
+static void matmul_rows(int begin, int end, void* context) {
+    MatmulRows* c = context;
+    for (int i = begin; i < end; i++) c->out[i] = dot_f32(c->w + (size_t)i * c->n, c->x, c->n);
+}
+
 void matmul(float* xout, float* x, float* w, int n, int d) {
-    // W (d,n) @ x (n,) -> xout (d,)
-    // by far the most amount of time is spent inside this little function
-    int i;
-    #pragma omp parallel for private(i) schedule(runtime)
-    for (i = 0; i < d; i++) {
-        xout[i] = dot_f32(w + (size_t)i * n, x, n);
-    }
+    MatmulRows context = {xout, x, w, n};
+    if (omp_pool_running) { omp_pool_rows(d, matmul_rows, &context); return; }
+    #pragma omp parallel for schedule(runtime)
+    for (int i = 0; i < d; i++) xout[i] = dot_f32(w + (size_t)i * n, x, n);
 }
 
 #include "src/fused.h"
+#include "src/attention.h"
 
 float* forward(Transformer* transformer, int token, int pos) {
 
@@ -300,44 +306,7 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // multihead attention. iterate over all heads
-        int h;
-        #pragma omp parallel for private(h)
-        for (h = 0; h < p->n_heads; h++) {
-            // get the query vector for this head
-            float* q = s->q + h * head_size;
-            // attention scores for this head
-            float* att = s->att + h * p->seq_len;
-            // iterate over all timesteps, including the current one
-            for (int t = 0; t <= pos; t++) {
-                // get the key vector for this head and at this timestep
-                float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // calculate the attention score as the dot product of q and k
-                float score = 0.0f;
-                for (int i = 0; i < head_size; i++) {
-                    score += q[i] * k[i];
-                }
-                score /= sqrtf(head_size);
-                // save the score to the attention buffer
-                att[t] = score;
-            }
-
-            // softmax the scores to get attention weights, from 0..pos inclusively
-            softmax(att, pos + 1);
-
-            // weighted sum of the values, store back into xb
-            float* xb = s->xb + h * head_size;
-            memset(xb, 0, head_size * sizeof(float));
-            for (int t = 0; t <= pos; t++) {
-                // get the value vector for this head and at this timestep
-                float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // get the attention weight for this timestep
-                float a = att[t];
-                // accumulate the weighted value into xb
-                for (int i = 0; i < head_size; i++) {
-                    xb[i] += a * v[i];
-                }
-            }
-        }
+        attention_run(p, s, pos, loff, kv_dim, kv_mul, head_size);
 
         // final matmul to get the output of the attention
         matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
@@ -368,8 +337,10 @@ float* forward(Transformer* transformer, int token, int pos) {
     rmsnorm(x, x, w->rms_final_weight, dim);
 
     // classifier into logits
+    omp_pool_output_stage = 1;
     if (cls.enabled) { classifier_int8(s->logits, x, w->wcls, p->dim, p->vocab_size); }
     else { matmul(s->logits, x, w->wcls, p->dim, p->vocab_size); }
+    omp_pool_output_stage = 0;
     return s->logits;
 }
 
@@ -896,6 +867,23 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
 }
 
 
+typedef struct {
+    Transformer* transformer;
+    Tokenizer* tokenizer;
+    Sampler* sampler;
+    char *mode, *prompt, *system_prompt;
+    int steps;
+} Inference;
+
+static void run_inference(void* context) {
+    Inference* c = context;
+    if (strcmp(c->mode, "generate") == 0) {
+        generate(c->transformer, c->tokenizer, c->sampler, c->prompt, c->steps);
+    } else {
+        chat(c->transformer, c->tokenizer, c->sampler, c->prompt, c->system_prompt, c->steps);
+    }
+}
+
 // ----------------------------------------------------------------------------
 // CLI, include only if not testing
 #ifndef TESTING
@@ -990,15 +978,13 @@ int main(int argc, char *argv[]) {
     Sampler sampler;
     build_sampler(&sampler, transformer.config.vocab_size, temperature, topp, rng_seed);
 
-    // run!
-    if (strcmp(mode, "generate") == 0) {
-        generate(&transformer, &tokenizer, &sampler, prompt, steps);
-    } else if (strcmp(mode, "chat") == 0) {
-        chat(&transformer, &tokenizer, &sampler, prompt, system_prompt, steps);
-    } else {
+    if (strcmp(mode, "generate") != 0 && strcmp(mode, "chat") != 0) {
         fprintf(stderr, "unknown mode: %s\n", mode);
         error_usage();
     }
+    Inference inference = {&transformer, &tokenizer, &sampler, mode, prompt, system_prompt, steps};
+    omp_pool_init();
+    omp_pool_run(run_inference, &inference);
 
     // memory and file handles cleanup
     free_sampler(&sampler);

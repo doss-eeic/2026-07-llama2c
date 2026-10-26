@@ -80,6 +80,9 @@ class BenchmarkRunner:
         env["OMP_PROC_BIND"] = config.omp_proc_bind
         env["OMP_PLACES"] = config.omp_places or ",".join(f"{{{cpu}}}" for cpu in config.cpus)
 
+        env["PERSISTENT_OPENMP"] = "1" if config.persistent_openmp else "0"
+        if config.persistent_openmp:
+            env["OUTPUT_THREADS"] = str(config.output_threads or config.threads)
         if config.omp_wait_policy is not None:
             env["OMP_WAIT_POLICY"] = config.omp_wait_policy.upper()
         if config.gomp_spincount is not None:
@@ -110,7 +113,8 @@ class BenchmarkRunner:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
-            check=True
+            check=True,
+            timeout=config.timeout,
         )
 
         # llama2.cの標準出力から性能を取得
@@ -343,6 +347,48 @@ def check_top():
     print(config)
     print(f"\n平均: {mean_tps:.2f} tok/s")
 
+    config = BenchmarkConfig(
+        cpus=(0, 1, 2, 3, 6, 7, 9, 10, 11),
+        threads=9,
+        steps=256,
+        omp_schedule="guided,16",
+        omp_proc_bind="close",
+        group_size=144,
+        optimize_weights=True,
+        two_stage_argmax=True,
+        omp_wait_policy="ACTIVE",
+        )
+
+    results = []
+    for repeat in range(10):
+        result = runner.run(config)
+        results.append(result.tokens_per_second)
+        # print(f"{repeat + 1:02d}: {result.tokens_per_second:.2f} tok/s", flush=True)
+
+    mean_tps = sum(results) / len(results)
+    print(config)
+    print(f"\n平均: {mean_tps:.2f} tok/s")
+
+    config=BenchmarkConfig(
+        cpus=(0, 2, 3, 5, 6, 7, 8, 10, 11),
+        threads=9,
+        omp_schedule="guided,16",
+        omp_proc_bind="close",
+        group_size=144,
+        optimize_weights=True,
+        two_stage_argmax=True,
+        omp_wait_policy="ACTIVE",
+    )
+    results = []
+    for repeat in range(10):
+        result = runner.run(config)
+        results.append(result.tokens_per_second)
+        # print(f"{repeat + 1:02d}: {result.tokens_per_second:.2f} tok/s", flush=True)
+
+    mean_tps = sum(results) / len(results)
+    print(config)
+    print(f"\n平均: {mean_tps:.2f} tok/s")
+
     config=BenchmarkConfig(
         cpus=(1, 2, 3, 5, 6, 7, 8, 10, 11),
         threads=9,
@@ -363,6 +409,52 @@ def check_top():
     mean_tps = sum(results) / len(results)
     print(config)
     print(f"\n平均: {mean_tps:.2f} tok/s")
+def main5(two_stage_argmax=True):
+    # 同じCPU順で、通常OpenMPと常駐チームの人数切替を比較する。
+    runner = BenchmarkRunner(binary_path="./build/run-fused")
+    base = BenchmarkConfig(
+        cpus=(0, 2, 1, 3, 4, 5, 8, 9, 6, 7, 10, 11, 12, 13),
+        threads=8, omp_schedule="guided,16", omp_wait_policy="ACTIVE",
+        optimize_weights=True, two_stage_argmax=two_stage_argmax, group_size=144,
+    )
+    cases = {
+        "omp8": base,
+        "omp14": replace(base, threads=14),
+        "pool8->8": replace(base, persistent_openmp=True, output_threads=8),
+        "pool8->14": replace(base, persistent_openmp=True, output_threads=14),
+        "pool14->14": replace(base, threads=14, persistent_openmp=True, output_threads=14),
+    }
+    ac_path = next(Path("/sys/class/power_supply").glob("AC*/online"), None)
+    power_states = set()
+
+    def record_power():
+        if ac_path is not None:
+            power_states.add(ac_path.read_text().strip())
+
+    record_power()
+    for config in cases.values():
+        runner.run(config)
+    results = {name: [] for name in cases}
+    names = list(cases)
+    for repeat in range(10):
+        offset = repeat % len(names)
+        for name in names[offset:] + names[:offset]:
+            record_power()
+            result = runner.run(cases[name])
+            record_power()
+            results[name].append(result.ms_per_token)
+            print(f"{repeat + 1:02d} {name:12s}: {result.tokens_per_second:.2f} tok/s", flush=True)
+    rates = {name: 1000 / (sum(values) / len(values)) for name, values in results.items()}
+    print(f"\n二段階argmax={two_stage_argmax}、平均ms/tokenの逆数")
+    for name, rate in rates.items():
+        print(f"{name:12s}: {rate:.2f} tok/s ({(rate / rates['omp8'] - 1) * 100:+.2f}% vs omp8)")
+
+
+    print(f"AC電源状態: {sorted(power_states)}（1=接続、0=バッテリー）")
+    if len(power_states) > 1:
+        print("測定中にAC接続が変化したため、速度比較は参考値です。")
+
+
 if __name__ == "__main__":
     # main4()
     check_top()

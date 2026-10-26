@@ -1,0 +1,128 @@
+[
+  {
+    "prompt": "Once upon a time",
+    "steps": 128,
+    "mode": "fp32",
+    "sha256": "846e03085a737715b4dff0c22c76784931448948b4cecd80ba1c7b16944e9bb9",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "Once upon a time",
+    "steps": 128,
+    "mode": "pool_g144",
+    "sha256": "846e03085a737715b4dff0c22c76784931448948b4cecd80ba1c7b16944e9bb9",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "Once upon a time",
+    "steps": 128,
+    "mode": "pool_g288",
+    "sha256": "846e03085a737715b4dff0c22c76784931448948b4cecd80ba1c7b16944e9bb9",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "Once upon a time",
+    "steps": 256,
+    "mode": "fp32",
+    "sha256": "aed31b5dccc53ec57b969b614bb701d6c270b30bb2d9eb75061af2360b4e2658",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "Once upon a time",
+    "steps": 256,
+    "mode": "pool_g144",
+    "sha256": "aed31b5dccc53ec57b969b614bb701d6c270b30bb2d9eb75061af2360b4e2658",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "Once upon a time",
+    "steps": 256,
+    "mode": "pool_g288",
+    "sha256": "aed31b5dccc53ec57b969b614bb701d6c270b30bb2d9eb75061af2360b4e2658",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "A little girl found a magic key.",
+    "steps": 128,
+    "mode": "fp32",
+    "sha256": "2b85b3e45c9e76af650eade733d8454cb33fde530b78fd34378c446f3d6140d0",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "A little girl found a magic key.",
+    "steps": 128,
+    "mode": "pool_g144",
+    "sha256": "2b85b3e45c9e76af650eade733d8454cb33fde530b78fd34378c446f3d6140d0",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "A little girl found a magic key.",
+    "steps": 128,
+    "mode": "pool_g288",
+    "sha256": "2b85b3e45c9e76af650eade733d8454cb33fde530b78fd34378c446f3d6140d0",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "A little girl found a magic key.",
+    "steps": 256,
+    "mode": "fp32",
+    "sha256": "d95e396cde3bc5ea183528c4ad44649034bed91bef03d751184704b6c95e8959",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "A little girl found a magic key.",
+    "steps": 256,
+    "mode": "pool_g144",
+    "sha256": "d95e396cde3bc5ea183528c4ad44649034bed91bef03d751184704b6c95e8959",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "A little girl found a magic key.",
+    "steps": 256,
+    "mode": "pool_g288",
+    "sha256": "d95e396cde3bc5ea183528c4ad44649034bed91bef03d751184704b6c95e8959",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "The sun was shining and",
+    "steps": 128,
+    "mode": "fp32",
+    "sha256": "625f2f6b147d06cd70555e194c84ac224dcf1b6760e76ef5d0d9cf64c166a268",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "The sun was shining and",
+    "steps": 128,
+    "mode": "pool_g144",
+    "sha256": "625f2f6b147d06cd70555e194c84ac224dcf1b6760e76ef5d0d9cf64c166a268",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "The sun was shining and",
+    "steps": 128,
+    "mode": "pool_g288",
+    "sha256": "625f2f6b147d06cd70555e194c84ac224dcf1b6760e76ef5d0d9cf64c166a268",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "The sun was shining and",
+    "steps": 256,
+    "mode": "fp32",
+    "sha256": "ad1294f624fb94f2cbfb6612b111bc0c97b4b193234b95f1c475063940550c63",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "The sun was shining and",
+    "steps": 256,
+    "mode": "pool_g144",
+    "sha256": "ad1294f624fb94f2cbfb6612b111bc0c97b4b193234b95f1c475063940550c63",
+    "matches_fp32": true
+  },
+  {
+    "prompt": "The sun was shining and",
+    "steps": 256,
+    "mode": "pool_g288",
+    "sha256": "ad1294f624fb94f2cbfb6612b111bc0c97b4b193234b95f1c475063940550c63",
+    "matches_fp32": true
+  }
+]

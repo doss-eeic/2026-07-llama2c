@@ -54,6 +54,37 @@ static void setup_classifier(float* wcls, int dim, int vocab, int gs, int huge_p
 #endif
 }
 
+static inline float classifier_bound(int i, float* x, int n, float* A, float* upper) {
+    int gs = cls.gs, ng = n / gs;
+    const int8_t* q = cls.q + (size_t)i * n;
+    const float* sc = cls.s + (size_t)i * ng;
+    float approx = 0.0f, bound = 0.0f;
+    for (int g = 0; g < ng; g++) {
+        float dot = 0.0f;
+        for (int j = 0; j < gs; j++) { dot += (float)q[g * gs + j] * x[g * gs + j]; }
+        approx += dot * sc[g];
+        bound += sc[g] * A[g];
+    }
+    // Same rounding margin as Sakurada's implementation.
+    float err = 0.51f * bound + 1e-6f;
+    *upper = approx + err;
+    return approx - err;
+}
+
+typedef struct { float *logits, *x, *A, *maximum; int n; } ClassifierRows;
+#define CLASSIFIER_MAX_STRIDE 16
+
+static void classifier_rows(int begin, int end, void* context) {
+    ClassifierRows* c = context;
+    int tid = omp_pool_rank();
+    float maximum = c->maximum[tid * CLASSIFIER_MAX_STRIDE];
+    for (int i = begin; i < end; i++) {
+        cls.lo[i] = classifier_bound(i, c->x, c->n, c->A, &c->logits[i]);
+        if (cls.lo[i] > maximum) maximum = cls.lo[i];
+    }
+    c->maximum[tid * CLASSIFIER_MAX_STRIDE] = maximum;
+}
+
 static void classifier_int8(float* logits, float* x, float* wcls, int n, int d) {
     int gs = cls.gs, ng = n / gs;
     float A[ng];
@@ -62,24 +93,24 @@ static void classifier_int8(float* logits, float* x, float* wcls, int n, int d) 
         for (int j = 0; j < gs; j++) { a += fabsf(x[g * gs + j]); }
         A[g] = a;
     }
-    // Finite sentinel: -Ofast permits optimizing away comparisons with infinities.
     float L = -FLT_MAX;
-    #pragma omp parallel for schedule(runtime) reduction(max:L)
-    for (int i = 0; i < d; i++) {
-        const int8_t* q = cls.q + (size_t)i * n;
-        const float* sc = cls.s + (size_t)i * ng;
-        float approx = 0.0f, bound = 0.0f;
-        for (int g = 0; g < ng; g++) {
-            float dot = 0.0f;
-            for (int j = 0; j < gs; j++) { dot += (float)q[g * gs + j] * x[g * gs + j]; }
-            approx += dot * sc[g];
-            bound += sc[g] * A[g];
+    if (omp_pool_running) {
+        // Each rank updates its maximum for every chunk. Keep these writes on
+        // separate cache lines, including when the stack is not line-aligned.
+        float maximum[omp_pool_total * CLASSIFIER_MAX_STRIDE];
+        for (int i = 0; i < omp_pool_total; i++) maximum[i * CLASSIFIER_MAX_STRIDE] = -FLT_MAX;
+        ClassifierRows context = {logits, x, A, maximum, n};
+        omp_pool_rows(d, classifier_rows, &context);
+        for (int i = 0; i < omp_pool_total; i++) {
+            float value = maximum[i * CLASSIFIER_MAX_STRIDE];
+            if (value > L) L = value;
         }
-        // Same rounding margin as Sakurada's implementation.
-        float err = 0.51f * bound + 1e-6f;
-        logits[i] = approx + err;
-        cls.lo[i] = approx - err;
-        if (cls.lo[i] > L) { L = cls.lo[i]; }
+    } else {
+        #pragma omp parallel for schedule(runtime) reduction(max:L)
+        for (int i = 0; i < d; i++) {
+            cls.lo[i] = classifier_bound(i, x, n, A, &logits[i]);
+            if (cls.lo[i] > L) L = cls.lo[i];
+        }
     }
     for (int i = 0; i < d; i++) {
         logits[i] = logits[i] >= L ? dot_f32(wcls + (size_t)i * n, x, n) : -FLT_MAX;

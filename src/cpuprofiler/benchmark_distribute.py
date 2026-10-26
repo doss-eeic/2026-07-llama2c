@@ -68,6 +68,9 @@ def run(config: BenchmarkConfig) -> dict[str, float]:
         "OMP_PROC_BIND": config.omp_proc_bind,
         "OMP_PLACES": config.omp_places or ",".join(f"{{{cpu}}}" for cpu in config.cpus),
     })
+    env["PERSISTENT_OPENMP"] = "1" if config.persistent_openmp else "0"
+    if config.persistent_openmp:
+        env["OUTPUT_THREADS"] = str(config.output_threads or config.threads)
     if config.omp_wait_policy is not None:
         env["OMP_WAIT_POLICY"] = config.omp_wait_policy.upper()
     if config.gomp_spincount is not None:
@@ -133,6 +136,7 @@ def main():
                      "schedule": config.omp_schedule, "optimize_weights": config.optimize_weights,
                      "two_stage_argmax": config.two_stage_argmax, "group_size": config.group_size,
                      "omp_wait_policy": config.omp_wait_policy, "gomp_spincount": config.gomp_spincount,
+                     "persistent_openmp": config.persistent_openmp, "output_threads": config.output_threads,
                      **summary})
         print(f"{name} run {i + 1}: {summary['tokens_per_second']:.2f} tokens/s", flush=True)
         with (output_root / "summary.csv").open("w", newline="") as file:
