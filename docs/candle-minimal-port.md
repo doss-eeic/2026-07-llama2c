@@ -1,5 +1,7 @@
 # Candle の最小移植と CPU 探索
 
+スレッド数取得の原因、今回のLinux追試コマンド、20巡の生データは[追試記事](candle-thread-cache-rerun.md)を参照。
+
 Candle fork: `/home/denjo/work/candle`。基点は upstream `12bb5d1`（2026-10-26）。
 
 | branch | upstream との差 | 用途 |
