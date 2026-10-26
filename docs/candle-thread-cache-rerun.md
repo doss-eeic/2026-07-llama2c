@@ -1,5 +1,7 @@
 # llama2.cの最適化をCandleに移植しようとしたら、スレッド数を指定するだけで約3倍速くなった
 
+大きなモデルでの比較は[Qwen2.5-1.5B-Instructによる追試](candle-qwen-thread-cache-rerun.md)にまとめた。
+
 もともとやりたかったのは、Candleのバグ探しではなかった。llama2.c側で進めていたCPU推論の最適化をRust製フレームワークCandleにも移す実験だった。移植前にスレッド数を調整していたら、未修正のCandleが`RAYON_NUM_THREADS`の指定だけで約3倍速くなった。今回は、その理由とLinuxでの追試を記録する。
 
 ## 発見までの順序
