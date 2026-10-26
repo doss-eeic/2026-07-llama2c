@@ -1,0 +1,128 @@
+{
+  "comparison": [
+    {
+      "case": 2,
+      "previous_tokens_per_second": 1531.5315313866643,
+      "tokens_per_second": 990.5871806995314,
+      "change_percent": -35.32048407761847
+    },
+    {
+      "case": 0,
+      "previous_tokens_per_second": 1507.503410605782,
+      "tokens_per_second": 987.9302637214312,
+      "change_percent": -34.46580241404318
+    },
+    {
+      "case": 1,
+      "previous_tokens_per_second": 1519.4224817551344,
+      "tokens_per_second": 983.9715049553049,
+      "change_percent": -35.240427414323406
+    },
+    {
+      "case": 7,
+      "previous_tokens_per_second": 1537.9262351645837,
+      "tokens_per_second": 975.9328771343118,
+      "change_percent": -36.542283054956094
+    },
+    {
+      "case": 6,
+      "previous_tokens_per_second": 1513.1804177249237,
+      "tokens_per_second": 971.8557607129696,
+      "change_percent": -35.773966585282615
+    },
+    {
+      "case": 8,
+      "previous_tokens_per_second": 1443.972557822853,
+      "tokens_per_second": 961.9151251773463,
+      "change_percent": -33.38411315602341
+    },
+    {
+      "case": 4,
+      "previous_tokens_per_second": 1510.5946684583944,
+      "tokens_per_second": 960.2433196280836,
+      "change_percent": -36.4327612377952
+    },
+    {
+      "case": 5,
+      "previous_tokens_per_second": 1525.7162580431689,
+      "tokens_per_second": 948.0909481391861,
+      "change_percent": -37.859287849814564
+    },
+    {
+      "case": 3,
+      "previous_tokens_per_second": 1539.5332635034401,
+      "tokens_per_second": 941.6276096354419,
+      "change_percent": -38.836812951178054
+    },
+    {
+      "case": 10,
+      "previous_tokens_per_second": 1150.1431173835902,
+      "tokens_per_second": 641.3232733934219,
+      "change_percent": -44.23969819926933
+    },
+    {
+      "case": 9,
+      "previous_tokens_per_second": 1056.9105689739029,
+      "tokens_per_second": 620.6121875607092,
+      "change_percent": -41.28053916962644
+    }
+  ],
+  "baseline_case": 2,
+  "paired": {
+    "3": {
+      "gain_percent": -4.942479775431307,
+      "bootstrap_95_percent": [
+        -9.193980610189744,
+        -1.1869436401610978
+      ]
+    },
+    "4": {
+      "gain_percent": -3.0632196400946388,
+      "bootstrap_95_percent": [
+        -7.742616016673876,
+        0.6787330235381139
+      ]
+    },
+    "5": {
+      "gain_percent": -4.290004291226069,
+      "bootstrap_95_percent": [
+        -9.38468347572121,
+        -0.41821563605664025
+      ]
+    }
+  },
+  "run_count": 220,
+  "stdout_hashes": [
+    "aed31b5dccc53ec57b969b614bb701d6c270b30bb2d9eb75061af2360b4e2658"
+  ],
+  "power_states": [
+    {
+      "/sys/class/power_supply/AC/online": "1",
+      "/sys/class/power_supply/ucsi-source-psy-USBC000:001/online": "1",
+      "/sys/class/power_supply/ucsi-source-psy-USBC000:002/online": "0"
+    }
+  ],
+  "block_tokens_per_second": {
+    "1": 1450.477326926814,
+    "2": 1429.9999998171372,
+    "3": 1419.1476941605013,
+    "4": 1434.2182889810103,
+    "5": 1054.663774481164,
+    "6": 793.148450202492,
+    "7": 779.6664528497706,
+    "8": 772.7272727083309,
+    "9": 774.6972593857847,
+    "10": 797.5721786072457,
+    "11": 807.6411960130656,
+    "12": 738.6812519371592,
+    "13": 855.6846179484356,
+    "14": 805.2335212933988,
+    "15": 814.9513910321456,
+    "16": 774.2038217093017,
+    "17": 789.0295358083262,
+    "18": 813.5876842541508,
+    "19": 782.1750323346004,
+    "20": 808.1781914163255
+  },
+  "power_profile_after": "performance"
+}

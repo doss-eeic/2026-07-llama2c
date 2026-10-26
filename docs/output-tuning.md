@@ -2,6 +2,13 @@
 
 測定・整理日: 2026-10-26。コマンドと`src/`・`results/`のパスはリポジトリのルートを基準とする。
 
+同じ11構成の再測定結果は [output-tuning-rerun-20261026.md](output-tuning-rerun-20261026.md) を参照。
+再測定では前回推奨の9→10・g288は非分離より4.94%遅かった。
+測定途中に全体の速度が大きく低下しており、以下の結果と合わせて評価する必要がある。
+
+master のスレッド数比較（9 vs 12）と、融合・二段階argmax を揃えた版での output 分配の比較は
+[master-threads-and-output-split.md](master-threads-and-output-split.md) を参照。
+
 Core Ultra 5 225U / stories15M / greedy / `Once upon a time` / `-n 256`。
 **非分離にほぼ匹敵する構成は得られた。安定して上回ることまでは確認できなかった。**
 
