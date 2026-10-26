@@ -52,6 +52,15 @@ class AutoTuner:
                 representatives[key] = (cpus, (*counts, len(cpus) / len(available)))
         return dict(representatives.values())
 
+    def _make_config(self, config, mask):
+        return replace(config, cpus=mask, threads=len(mask), omp_places=None)
+
+    def _tuning_candidates(self, config, masks, groups):
+        return [replace(self._make_config(config, mask), omp_schedule=schedule, group_size=g)
+                for mask in masks
+                for schedule in dict.fromkeys((config.omp_schedule, "static", "dynamic,16", "dynamic,64"))
+                for g in dict.fromkeys(groups)]
+
     def kasikoi_serch(self, config=None, budget=56, top_k=3, repeats=3, seed=42):
         """人数全域→近傍探索→schedule/g調整→独立確認。最良の平均結果を返す。
 
@@ -69,7 +78,7 @@ class AutoTuner:
         rng, measured, layouts = random.Random(seed), {}, {}
 
         def make(mask):
-            return replace(config, cpus=mask, threads=len(mask), omp_places=None)
+            return self._make_config(config, mask)
 
         def measure(case):
             result = self.evaluate(case)
@@ -110,10 +119,7 @@ class AutoTuner:
             with self.runner.model_path.open("rb") as model:
                 dim, = struct.unpack("i", model.read(4))
             groups += [g for g in (96, 144, 288) if dim % g == 0]
-        tuning = [replace(make(mask), omp_schedule=schedule, group_size=g)
-                  for mask in sorted(layouts, key=layouts.get)[:top_k]
-                  for schedule in dict.fromkeys((config.omp_schedule, "static", "dynamic,16", "dynamic,64"))
-                  for g in dict.fromkeys(groups)]
+        tuning = self._tuning_candidates(config, sorted(layouts, key=layouts.get)[:top_k], groups)
         rng.shuffle(tuning)
         for case in tuning:
             if len(measured) >= budget:
