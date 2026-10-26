@@ -1,3 +1,40 @@
+# AI向けの最新引き継ぎ（2026-10-22・全14CPU探索後）
+
+最新は [1〜14論理CPUの探索と5アプローチ比較](AI向け_20261022_14CPU探索.md)。
+固定269型を全測定し、入れ子mask＋kernelの118,800候補を5手法×2seedで探索した。
+ビーム成長も深さ14まで完走。全14人の16条件も独立確認し、計3,551測定を保存した。
+今回の確認最速平均は前回と同じpthread層8→output12人（798.24 tok/s）。
+人数モデルが比較的良く、L2特徴追加の予測上の利点は小予算では明確でなかった。
+CPU代表交換の差・外れ値も残しており、同値化を性能上の完全一致とは扱わない。
+
+前段は [480候補の構成探索と追加ベンチマーク](AI向け_20261022_構成探索.md)。
+単体・複合比較、トポロジー予測探索、48候補の実測オンライン探索2通りと独立確認を行った。
+最速平均はpthread P4E4の層8→output12人で824.03 tok/s。qkv-ffnブランチ比の小差は未確定。
+探索方式は48/480候補のreplayで平均latency差1.73%、randomは4.58%。
+16セル間隔の基準補正が順位を歪めた失敗も含めて記録した。
+
+以下の2026-10-20要因比較も引き続き参照する。
+
+[最適化の要因比較](AI向け_20261020_最適化要因比較.md)では、
+共通カーネルでpthread/OpenMP、static/dynamic、QKV融合、FFN融合、1/4行処理を交差させ、
+速度測定700回と詳細計測18回を行った。前段の「融合pthreadは未比較」は過去時点の説明。
+
+- QKV/FFNの改善は両方式に有効。併用の相乗・重複は条件依存。
+- 同条件の8→14切替はOpenMPで悪化、pthreadでは大きな悪化なく微改善傾向だった。
+- 全14固定は遅いが、outputだけ14人を使う構成まで否定しない。
+- 時間経過による速度低下があったため、フェーズを跨いだ絶対速度の比較を避ける。
+- PythonのBenchmarkConfigで設定し、benchmark_factorial.pyから比較する。
+- 前段の経緯は[CPU並列化メモ](AI向け_20261020_CPU並列化.md)に保存している。
+- この機械は14論理CPU・12物理コア。CPU番号の意味は他の機械で再確認する。
+
+以下は過去のコード例・記録。現在の実装はrun.cとsrc/、最新の測定は上記リンクを優先する。
+
+---
+
+## 2026-10-20: 現在のQKV・FFN融合版の再評価
+
+[未改造版・融合前との300試行比較](qkv-ffn-benchmark.md)。既定runtime scheduleの影響と、電源状態による予備測定除外に注意。
+
 ```c
 // ============================================================
 // Token Embedding
@@ -882,7 +919,7 @@ CASES=(
 # OpenMP版をビルド
 make runomp CC=gcc
 
-if ! ldd ./run | grep -Eq 'libgomp|libomp'; then
+if ! ldd ./build/run-fused | grep -Eq 'libgomp|libomp'; then
     echo "ERROR: OpenMP is not enabled"
     exit 1
 fi
@@ -911,7 +948,7 @@ for ((r=1; r<=REPEATS; r++)); do
                 OMP_DYNAMIC=FALSE \
                 OMP_PROC_BIND=TRUE \
                 OMP_PLACES=threads \
-            ./run "$MODEL" \
+            ./build/run-fused "$MODEL" \
                 -n "$STEPS" \
                 -t "$TEMPERATURE" \
                 -s "$SEED" \
@@ -1198,7 +1235,7 @@ export LC_ALL=C
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 MODEL="${MODEL:-./stories15M.bin}"
-RUN_BIN="${RUN_BIN:-./run}"
+RUN_BIN="${RUN_BIN:-./build/run-fused}"
 OUT_ROOT="${OUT_ROOT:-./benchmark_affinity_stories15M}"
 REPEATS="${REPEATS:-7}"
 WARMUPS="${WARMUPS:-1}"
