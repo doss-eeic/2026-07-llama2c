@@ -1,6 +1,6 @@
 from .benchmark import BenchmarkConfig, BenchmarkRunner
 from .topology import CPUTopology, CalibratedTopology, DomainClass, DomainProfile, build_domains
-from dataclasses import replace
+from dataclasses import fields, replace
 from itertools import product
 import math
 import random
@@ -159,8 +159,9 @@ class AutoTuner:
                        calibrated=None, calibration_repeats=3, tolerance=0.05):
         """1スレッドから最良配置に1CPUずつ足していくgreedy探索。
 
-        warmup → キャリブレーション(calibratedが無いとき) → CPU探索 → schedule/g調整 → 独立確認。
+        warmup → キャリブレーション(calibratedが無いとき) → CPU探索 → 補助設定調整 → 独立確認。
         追加後の配置はDomainClassで正規化し、同型の配置は1回だけ測る。
+        補助設定(OpenMPのschedule/wait/proc_bind、g)はCPU探索の上位top_k配置だけで探す。
         """
         started, history_start = time.perf_counter(), len(self.history)
         search = LayoutSearch(self, config, top_k, repeats, seed)
@@ -174,7 +175,8 @@ class AutoTuner:
         self.last_search = {"seconds": time.perf_counter() - started,
                             "measurements": len(self.history) - history_start,
                             "exploration": len(search.measured), "baseline": search.baseline,
-                            "confirmed": results, "calibrated": calibrated, "stages": search.stages}
+                            "confirmed": results, "calibrated": calibrated, "stages": search.stages,
+                            "tuned": search.tuned}
         return results[0]
 
     def search(self, args="Sample"):
@@ -339,8 +341,17 @@ class LayoutSearch:
     """kasikoi2_serchの状態と各段階。
 
     measuredは探索中の測定(BenchmarkConfig→結果)、layoutsはCPU配置→ms/token、
-    stagesはスレッド数ごとの(測定した配置→ms/token)。
+    stagesはスレッド数ごとの(測定した配置→ms/token)、tunedは上位配置ごとの補助設定調整後の構成。
     """
+    # CPU配置が決まった後に試す補助設定(この順に1つずつ決める)。
+    # OMP_PLACESは各CPUを1つずつ並べるので、proc_bindはclose/spreadで差が出ずfalse(固定なし)だけ比べる。
+    RUNTIME_OPTIONS = {
+        "omp_schedule": ("static", "dynamic,16", "dynamic,64", "guided"),
+        "group_size": (96, 144, 288),
+        "omp_wait_policy": (None, "ACTIVE", "PASSIVE"),
+        "gomp_spincount": (None, 0, 10000, 1000000),
+        "omp_proc_bind": ("close", "false"),
+    }
 
     def __init__(self, tuner, config, top_k, repeats, seed):
         cpus = tuple(sorted(tuner.topology.cpus))
@@ -349,10 +360,17 @@ class LayoutSearch:
         config = config or BenchmarkConfig(cpus=cpus, threads=len(cpus))
         if not config.cpus or not set(config.cpus) <= set(cpus):
             raise ValueError("config.cpus must be available CPUs")
-        self.tuner, self.cpus, self.config = tuner, cpus, config
+        # CPU探索(warmup・キャリブレーションを含む)はOpenMP設定をBenchmarkConfigの既定値に戻して行い、
+        # 入力configの値は補助設定の候補と基準構成にだけ使う。gはモデル依存なので入力値のまま。
+        defaults = {f.name: f.default for f in fields(BenchmarkConfig)}
+        self.input = config
+        self.tuner, self.cpus = tuner, cpus
+        self.config = replace(config, **{name: defaults[name] for name in self.RUNTIME_OPTIONS
+                                         if name != "group_size"})
         self.top_k, self.repeats = top_k, repeats
-        self.rng, self.measured, self.layouts, self.stages = random.Random(seed), {}, {}, []
-        self.baseline = self.make(tuple(sorted(config.cpus)))
+        self.rng, self.measured, self.layouts = random.Random(seed), {}, {}
+        self.stages, self.tuned = [], []
+        self.baseline = replace(config, cpus=tuple(sorted(config.cpus)), threads=len(config.cpus), omp_places=None)
 
     def make(self, mask, **changes):
         return replace(self.config, cpus=mask, threads=len(mask), omp_places=None, **changes)
@@ -393,28 +411,36 @@ class LayoutSearch:
             self.stages.append(stage)
             best = min(stage, key=stage.get)
 
+    def runtime_options(self):
+        """試す補助設定。入力configの値も候補に入れる。group_sizeはtwo_stage_argmax時だけ、dimを割り切る値に絞る。"""
+        options = {}
+        for name, values in self.RUNTIME_OPTIONS.items():
+            if name == "group_size":
+                if not self.config.two_stage_argmax:
+                    continue
+                with self.tuner.runner.model_path.open("rb") as model:
+                    dim, = struct.unpack("i", model.read(4))
+                values = [g for g in values if dim % g == 0]
+            options[name] = tuple(dict.fromkeys((getattr(self.input, name), *values)))
+        return options
+
     def tune_runtime(self):
-        """全スレッド数を通した上位配置でOpenMP scheduleとgroup sizeを試す。"""
-        config, groups = self.config, [self.config.group_size]
-        if config.two_stage_argmax:
-            with self.tuner.runner.model_path.open("rb") as model:
-                dim, = struct.unpack("i", model.read(4))
-            groups += [g for g in (96, 144, 288) if dim % g == 0]
-        schedules = dict.fromkeys((config.omp_schedule, "static", "dynamic,16", "dynamic,64"))
-        tuning = [self.make(mask, omp_schedule=schedule, group_size=g)
-                  for mask in sorted(self.layouts, key=self.layouts.get)[:self.top_k]
-                  for schedule in schedules
-                  for g in dict.fromkeys(groups)]
-        self.rng.shuffle(tuning)
-        for case in tuning:
-            if case not in self.measured:
-                self.measure(case)
+        """CPU探索の上位top_k配置それぞれで、補助設定を1つずつ最良値に固定していく(座標降下)。"""
+        options = self.runtime_options()
+        for mask in sorted(self.layouts, key=self.layouts.get)[:self.top_k]:
+            best = self.make(mask)
+            for name, values in options.items():
+                cases = [replace(best, **{name: value}) for value in values]
+                self.rng.shuffle(cases)
+                for case in cases:
+                    if case not in self.measured:
+                        self.measure(case)
+                best = min(cases, key=lambda case: self.measured[case].ms_per_token)
+            self.tuned.append(best)
 
     def confirm(self):
-        """上位top_kと基準構成を、巡ごとに順序を変えてrepeats回測り直し、平均で順位を付ける。"""
-        finalists = sorted(self.measured, key=lambda case: self.measured[case].ms_per_token)[:self.top_k]
-        if self.baseline not in finalists:
-            finalists.append(self.baseline)
+        """調整後の各配置と基準構成を、巡ごとに順序を変えてrepeats回測り直し、平均で順位を付ける。"""
+        finalists = list(dict.fromkeys((*self.tuned, self.baseline)))
         confirmed = {case: [] for case in finalists}
         for _ in range(self.repeats):
             self.rng.shuffle(finalists)

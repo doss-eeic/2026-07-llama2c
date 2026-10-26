@@ -90,7 +90,8 @@ class AutoTunerTest(unittest.TestCase):
     def kasikoi2(self, model, **options):
         config = BenchmarkConfig(cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10, 11), threads=10,
                                  steps=32, prompt="test", optimize_weights=True,
-                                 two_stage_argmax=True, omp_places="old places")
+                                 two_stage_argmax=True, omp_places="old places",
+                                 omp_schedule="static", omp_wait_policy="PASSIVE", gomp_spincount=0)
         tuner = AutoTuner(topology(), FakeRunner(model))
         result = tuner.kasikoi2_serch(config, **options)
         return tuner, result
@@ -119,6 +120,22 @@ class AutoTunerTest(unittest.TestCase):
                 self.assertEqual(case.threads, len(case.cpus))
                 self.assertIsNone(case.omp_places)
                 self.assertTrue(case.optimize_weights and case.two_stage_argmax)
+            # CPU探索まではOpenMP設定を既定値にする
+            default = BenchmarkConfig(cpus=(0,), threads=1)
+            for case in calls[:1 + calibration + sum(map(len, stages))]:
+                self.assertEqual((case.omp_schedule, case.omp_wait_policy, case.gomp_spincount, case.omp_proc_bind),
+                                 (default.omp_schedule, None, None, default.omp_proc_bind))
+
+            # 補助設定はCPU探索の上位3配置だけで探し、確認は調整後の構成と基準構成
+            tuned = tuner.last_search["tuned"]
+            layouts = {mask: ms for stage in stages for mask, ms in stage.items()}
+            self.assertEqual([c.cpus for c in tuned], sorted(layouts, key=layouts.get)[:3])
+            self.assertEqual({r.config for r in final}, {*tuned, tuner.last_search["baseline"]})
+            self.assertTrue(all(c.omp_schedule != "static" for c in tuned))
+            tried = {c for c in calls if c.cpus == tuned[0].cpus}
+            for name in ("omp_schedule", "group_size", "omp_wait_policy", "gomp_spincount", "omp_proc_bind"):
+                values = {getattr(c, name) for c in tried}
+                self.assertGreater(len(values), 1, name)
 
             # calibratedを渡せばキャリブレーションを再測定しない。結果は再現する。
             again, _ = self.kasikoi2(model, calibrated=tuner.last_search["calibrated"])
