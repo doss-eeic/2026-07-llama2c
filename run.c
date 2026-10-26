@@ -13,6 +13,9 @@
     #include <unistd.h>
     #include <sys/mman.h>
 #endif
+#ifdef _OPENMP
+    #include <omp.h>
+#endif
 // ----------------------------------------------------------------------------
 // Transformer model
 
@@ -228,6 +231,35 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     }
 }
 
+// Output-only CPU switching: the first out_p threads (P cores) get out_wp rows
+// per E-core row. Enabled via LLAMA_OUT_THREADS / LLAMA_OUT_P / LLAMA_OUT_WP.
+static int out_threads = 0, out_p = 0, out_wp = 2;
+
+void matmul_output(float* xout, float* x, float* w, int n, int d) {
+#ifdef _OPENMP
+    if (out_p > 0 && out_threads > out_p) {
+        int total = out_wp * out_p + (out_threads - out_p);
+        #pragma omp parallel num_threads(out_threads) proc_bind(close)
+        {
+            int t = omp_get_thread_num();
+            int lo = t < out_p ? out_wp * t : out_wp * out_p + (t - out_p);
+            int hi = lo + (t < out_p ? out_wp : 1);
+            int begin = (int)((long long)d * lo / total);
+            int end = (int)((long long)d * hi / total);
+            for (int i = begin; i < end; i++) {
+                float val = 0.0f;
+                for (int j = 0; j < n; j++) {
+                    val += w[i * n + j] * x[j];
+                }
+                xout[i] = val;
+            }
+        }
+        return;
+    }
+#endif
+    matmul(xout, x, w, n, d);
+}
+
 float* forward(Transformer* transformer, int token, int pos) {
 
     // a few convenience variables
@@ -357,7 +389,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     rmsnorm(x, x, w->rms_final_weight, dim);
 
     // classifier into logits
-    matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+    matmul_output(s->logits, x, w->wcls, p->dim, p->vocab_size);
     return s->logits;
 }
 
@@ -943,6 +975,11 @@ int main(int argc, char *argv[]) {
 
     // build the Transformer via the model .bin file
     Transformer transformer;
+    char *env;
+    if ((env = getenv("LLAMA_OUT_THREADS"))) out_threads = atoi(env);
+    if ((env = getenv("LLAMA_OUT_P"))) out_p = atoi(env);
+    if ((env = getenv("LLAMA_OUT_WP"))) out_wp = atoi(env);
+    if (out_wp < 1) out_wp = 1;
     build_transformer(&transformer, checkpoint_path);
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
 
