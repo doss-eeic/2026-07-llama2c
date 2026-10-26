@@ -1,5 +1,13 @@
 # CPU-Profiler
 
+全1〜14論理CPUの最新実測と5探索法の比較は
+[14CPU探索の記録](docs/AI向け_20261022_14CPU探索.md)、
+[実行仕様](../src/cpuprofiler/TOPOLOGY14.md)を参照。
+
+2026-10-22の実測・構成探索の成果は
+[480候補の構成探索と追加ベンチマーク](docs/AI向け_20261022_構成探索.md)、
+[実装と再現方法](../src/cpuprofiler/TOPOLOGY_SEARCH.md)を参照。
+
 > CPUの構成(コアがなんこ，どのスレッドがL2キャッシュを共有しているか等)を認識
 > ->色々な組み合わせでベンチマークを走らせて集計
 > ->最適な構成を決定
@@ -14,6 +22,68 @@
 - まず最初はコア１つ(複数組み合わせない)のベンチマークを取る。
 - 一番早いのを選ぶ。(もしくは一番早い２つを組み合わせるのを基本構成に。)
 - runをするときに自動でこの構成が動くようにする。(とりあえずはmakeファイルで専用の作るのが良いかも)
+
+
+# 準備（セットアップ）
+`build/` のモデル（`stories15M.bin`）はリポジトリに含まれている。実行ファイルは CPU ごとに `-march=native` でビルドし直す。
+
+## 必要なもの
+- Linux（`taskset` と `sched_setaffinity` を使う）
+- OpenMP が使える gcc
+- [uv](https://docs.astral.sh/uv/)（Python 3.14 以上は uv が用意する）
+
+## 手順
+リポジトリのルートで実行する。
+```shell
+# 実行ファイル（cpuprofiler が使うのは build/run-omp。-fopenmp を忘れると 1 スレッドでしか動かない）
+gcc -Ofast -fopenmp -march=native run.c -lm -o build/run-omp
+
+# モデルがない場合（約 60MB）
+wget -P build https://huggingface.co/karpathy/tinyllamas/resolve/main/stories15M.bin
+```
+
+## 確認
+```shell
+# libgomp が表示されれば OpenMP 付きでビルドできている
+ldd build/run-omp | grep gomp
+
+# 4 スレッドで動かしてみる。stderr に "achieved tok/s" と "section ms/tok" が出れば OK
+OMP_NUM_THREADS=4 OUTPUT_THREADS=4 OMP_SCHEDULE=static taskset -c 0-3 \
+    ./build/run-omp ./build/stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
+```
+
+> 注意：`-fopenmp` なしでビルドすると、`OMP_NUM_THREADS` も `-B` / `-C` も効かず、どの構成でも 1 スレッドで動く。
+> 探索の結果がおかしいときは、まず `ldd build/run-omp | grep gomp` で確認する。
+
+## スレッド数とスケジュールの環境変数
+| 環境変数 | 意味 | 既定値 |
+|---|---|---|
+| `OMP_NUM_THREADS` | 出力層以外のスレッド数 | 論理 CPU の数 |
+| `OUTPUT_THREADS` | 出力層のスレッド数 | 8 |
+| `OMP_SCHEDULE` | 出力層以外の matmul の分け方 | `dynamic,1` 相当（遅い） |
+| `OUTPUT_SCHEDULE` / `OUTPUT_CHUNK` | 出力層の matmul の分け方 | `dynamic` / 128 |
+
+> 注意：`OMP_SCHEDULE` を指定しないと、出力層以外が大幅に遅くなる（4 スレッドで body が 0.83 ms → 1.53 ms）。手で測るときは `OMP_SCHEDULE=static` を付ける。
+
+## cpuprofiler を実行する
+リポジトリのルートで実行する（`run.c` が `tokenizer.bin` を今いるフォルダから探すため）。
+```shell
+uv run cpuprofiler topology  # CPU の構成を表示
+uv run cpuprofiler beam      # 全体の CPU を beam search
+uv run cpuprofiler split     # 出力層とそれ以外の CPU を別々に beam search
+uv run cpuprofiler sample    # 決められた構成だけを試す
+```
+- 出力層を int8-exact で計算するときは `-q int8-exact` を付ける（例：`uv run cpuprofiler split -q int8-exact`）。
+- `beam` と `split` の結果は `src/cpuprofiler/output/` に保存される（git の管理外）。
+
+## 出力層とそれ以外で CPU を分ける（-B / -C）
+`split` は `run.c` の `-B`（出力層以外）と `-C`（出力層）を使う。手で試すときは次のようにする。
+```shell
+OMP_PROC_BIND=FALSE OMP_SCHEDULE=static ./build/run-omp ./build/stories15M.bin -n 256 -t 0 -B 0-3 -C 0,2
+```
+- CPU は `0,2,4-7` のように書く。スレッド数はリストの CPU の数になる。
+- `OMP_PROC_BIND=FALSE` が必要（そうでないとエラーで終了する）。
+- `-C` を指定すると `OUTPUT_THREADS` より優先される。`-B` だけを指定した場合、出力層は `OUTPUT_THREADS` のスレッド数で動く。
 
 # cpu-profiler.py
 ## 仕組み
@@ -200,7 +270,7 @@ taskset -c 4 \
 
 > taskset はプロセスのCPU affinityを設定するLinuxのコマンド。
 
-注意：今のビルドが`make runomp CC=gcc`でできているか確認。
+注意：実行ファイルが `-fopenmp` 付きでビルドされているか確認する（手順は「準備（セットアップ）」を参照）。`make runomp` はルートに `./run` を作るもので、`build/` の実行ファイルは作らない。
 
 ## ベンチマークの取得
 

@@ -28,4 +28,18 @@ upstreamと融合版でCPU集合・人数・ビルドオプション・モデル
 検証コードと実験結果は[dev/optブランチ](https://github.com/doss-eeic/2026-07-llama2c/tree/dev/opt)に保存する。
 このブランチでは`tests/`と`results/`を含めない。
 
+```sh
+python3 -m unittest discover -s tests -p 'test_fused.py' -v
+CC=gcc TEST_OPENMP=1 python3 -m unittest discover -s tests -p 'test_fused.py' -v
+```
+
+基点の未融合ソースと合成モデルの全logits・gate値・KV cacheを比較する。
+MHA/GQA、端数の出る行数、複数コンテキスト、OpenMPでは1/4/14人・static/dynamicを検証。
+O2はビット一致、Ofastは絶対誤差1e-6＋相対誤差1e-5以内で判定する。
+OpenMP版のテストには`-fopenmp`対応コンパイラが必要。
+
 重み配置の追加機能は[hugepage.md](hugepage.md)を参照。既定は従来のmmap。
+
+## 未改造版との測定
+
+[2026-10-20の比較結果・設定と注意点](qkv-ffn-benchmark.md)。
