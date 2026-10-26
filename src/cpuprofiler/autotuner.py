@@ -11,10 +11,11 @@ SECTIONS = (None, "body", "cls")
 
 
 class AutoTuner:
-    def __init__(self, topology: CPUTopology, runner: BenchmarkRunner, classifier="fp32"):
+    def __init__(self, topology: CPUTopology, runner: BenchmarkRunner, classifier="fp32", workers="omp"):
         self.topology = topology
         self.runner = runner
         self.classifier = classifier  # 出力層の計算方法（run.c の -q）。作る構成すべてに使う
+        self.workers = workers        # -B / -C の区間を動かすスレッド（benchmark.WORKERS）。作る構成すべてに使う
         self.history = []
 
     def evaluate(self, config):
@@ -29,15 +30,25 @@ class AutoTuner:
         cpus = tuple(sorted(cpus))
         if section is None:
             # 出力層も同じスレッド数にする（output_threads の既定値 8 を使わない）
+            if self.workers == "pool":
+                # 常駐ワーカーは -B / -C の区間でしか使えないので、両方に同じ cpu を渡す
+                return BenchmarkConfig(
+                    cpus, len(cpus), output_threads=len(cpus), body_cpus=cpus, cls_cpus=cpus,
+                    classifier=self.classifier, workers=self.workers,
+                )
             return BenchmarkConfig(
                 cpus, len(cpus), output_threads=len(cpus), classifier=self.classifier
             )
 
         other = fixed if fixed is not None else cpus
         if section == "body":
-            return BenchmarkConfig(body_cpus=cpus, cls_cpus=other, classifier=self.classifier)
+            return BenchmarkConfig(
+                body_cpus=cpus, cls_cpus=other, classifier=self.classifier, workers=self.workers
+            )
         if section == "cls":
-            return BenchmarkConfig(body_cpus=other, cls_cpus=cpus, classifier=self.classifier)
+            return BenchmarkConfig(
+                body_cpus=other, cls_cpus=cpus, classifier=self.classifier, workers=self.workers
+            )
         raise ValueError(f"Invalid section: {section}")
 
     @staticmethod
@@ -167,6 +178,6 @@ class AutoTuner:
             cls_best = self.best(results)[0].cls_cpus
 
         config = BenchmarkConfig(
-            body_cpus=body_best, cls_cpus=cls_best, classifier=self.classifier
+            body_cpus=body_best, cls_cpus=cls_best, classifier=self.classifier, workers=self.workers
         )
         return config, self.evaluate(config)

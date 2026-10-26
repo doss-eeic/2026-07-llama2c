@@ -66,6 +66,7 @@ uv run cpuprofiler split     # 出力層とそれ以外の CPU を別々に beam
 uv run cpuprofiler sample    # 決められた構成だけを試す
 ```
 - 出力層を int8-exact で計算するときは `-q int8-exact` を付ける（例：`uv run cpuprofiler split -q int8-exact`）。
+- 常駐ワーカー（run.c の `SECTION_WORKERS=pool`）で動かすときは `-w pool` を付ける（例：`uv run cpuprofiler split -q int8-exact -w pool`）。省略すると OpenMP（`-w omp`）。
 - `beam` と `split` の結果は `src/cpuprofiler/output/` に保存される（git の管理外）。
 
 ## 出力層とそれ以外で CPU を分ける（-B / -C）

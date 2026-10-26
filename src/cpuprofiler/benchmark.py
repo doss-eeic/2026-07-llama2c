@@ -37,6 +37,10 @@ from dataclasses import dataclass
 
 # run.c の -q で選べる出力層の計算方法
 CLASSIFIERS = ("fp32", "int8-exact")
+# run.c の SECTION_WORKERS で選べる、-B / -C の区間を動かすスレッド
+#   omp  : OpenMP（区間に入るたびにスレッドを cpu に固定し直す）
+#   pool : 常駐ワーカー（起動時に cpu ごとに 1 本作って固定したまま。-B と -C の両方が必要）
+WORKERS = ("omp", "pool")
 
 
 @dataclass(frozen=True)
@@ -56,7 +60,9 @@ class BenchmarkConfig:
     omp_proc_bind: str = "TRUE"
     omp_places: str = "threads"
     output_threads: int = 8
-    omp_schedule: str = "dynamic,128"
+    # 出力層以外の matmul の配り方。dynamic,128 だと dim=288 の matmul が 3 つにしか分かれず、
+    # 4 スレッド以上にしても 3 本しか働かない
+    omp_schedule: str = "static"
 
     # 出力層以外のcpu指定（run.c の -B）。スレッド数は len(body_cpus)
     body_cpus: tuple[int, ...] | None = None
@@ -65,6 +71,8 @@ class BenchmarkConfig:
 
     # 出力層の計算方法（run.c の -q）。"fp32" か "int8-exact"（int8-exact は temperature=0 のみ）
     classifier: str = "fp32"
+    # -B / -C の区間を動かすスレッド（WORKERS を参照）
+    workers: str = "omp"
 
     @property
     def uses_sections(self) -> bool:
@@ -132,6 +140,12 @@ class BenchmarkRunner:
         if config.classifier == "int8-exact" and config.temperature != 0.0:
             raise ValueError("classifier int8-exact requires temperature 0")
 
+        if config.workers not in WORKERS:
+            raise ValueError(f"workers must be one of {WORKERS}")
+
+        if config.workers == "pool" and (config.body_cpus is None or config.cls_cpus is None):
+            raise ValueError("workers pool requires both body_cpus and cls_cpus")
+
         # OpenMPの環境変数
         env = os.environ.copy()
 
@@ -145,6 +159,7 @@ class BenchmarkRunner:
             # -B / -C では run.c がスレッドを cpu に固定するので、OpenMP には固定させない
             env["OMP_PROC_BIND"] = "FALSE"
             env.pop("OMP_PLACES", None)
+            env["SECTION_WORKERS"] = config.workers
         else:
             env["OMP_PROC_BIND"] = config.omp_proc_bind
             env["OMP_PLACES"] = config.omp_places
