@@ -16,15 +16,15 @@ static void matmul_qkv(float *q, float *k, float *v, float *x,
     }
 }
 
-static void ffn_up_gate(float *hb, float *hb2, float *x, float *up, float *gate,
+static void ffn_up_gate(float *hb, float *hb2, float *x, float *gate, float *up,
                         int dim, int hidden_dim) {
     #pragma omp parallel for schedule(runtime)
     for (int i = 0; i < hidden_dim; i++) {
-        float val = 0.0f, g = 0.0f;
-        for (int j = 0; j < dim; j++) val += up[i * dim + j] * x[j];
-        for (int j = 0; j < dim; j++) g += gate[i * dim + j] * x[j];
-        hb2[i] = g;
+        float val = 0.0f, u = 0.0f;
+        for (int j = 0; j < dim; j++) val += gate[i * dim + j] * x[j];
+        for (int j = 0; j < dim; j++) u += up[i * dim + j] * x[j];
+        hb2[i] = u;
         val *= 1.0f / (1.0f + expf(-val));
-        hb[i] = val * g;
+        hb[i] = val * u;
     }
 }
