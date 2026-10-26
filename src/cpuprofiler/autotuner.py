@@ -7,9 +7,10 @@ import struct
 import time
 
 class AutoTuner:
-    def __init__(self, topology: CPUTopology, runner: BenchmarkRunner):
+    def __init__(self, topology: CPUTopology, runner: BenchmarkRunner, workers="omp"):
         self.topology = topology
         self.runner = runner
+        self.workers = workers  # beam / sample で作る構成の -x（kasikoi は渡された config のものを使う）
         self.history = []
 
     def evaluate(self, config):
@@ -156,14 +157,14 @@ class AutoTuner:
 
     def generate_fixed_candidates(self, args="All"):
         if args == "All":
-            return [BenchmarkConfig((cpu_id,), 1) for cpu_id in self.topology.cpus]
+            return [BenchmarkConfig((cpu_id,), 1, workers=self.workers) for cpu_id in self.topology.cpus]
         elif args == "Sample":
             return [
-                BenchmarkConfig((0,), 1),
-                BenchmarkConfig((0, 2), 2),
-                BenchmarkConfig((0, 1, 2, 3), 4),
-                BenchmarkConfig((4, 5, 8, 9), 4),
-                BenchmarkConfig((0, 2, 4, 8), 4),
+                BenchmarkConfig((0,), 1, workers=self.workers),
+                BenchmarkConfig((0, 2), 2, workers=self.workers),
+                BenchmarkConfig((0, 1, 2, 3), 4, workers=self.workers),
+                BenchmarkConfig((4, 5, 8, 9), 4, workers=self.workers),
+                BenchmarkConfig((0, 2, 4, 8), 4, workers=self.workers),
             ]
         else:
             raise ValueError("Invalid argument for generate_fixed_candidates")
@@ -182,7 +183,7 @@ class AutoTuner:
                     new_cpus = tuple(sorted(config.cpus + (cpu_id,)))
                     new_threads = min(len(new_cpus), self.topology.n_logical_cpus)
 
-                    new_candidates.add(BenchmarkConfig(new_cpus, new_threads))
+                    new_candidates.add(BenchmarkConfig(new_cpus, new_threads, workers=self.workers))
         return list(new_candidates)
     
     def beam_search(self, depth=0, max_depth=4, pre_results=None, n=3):
