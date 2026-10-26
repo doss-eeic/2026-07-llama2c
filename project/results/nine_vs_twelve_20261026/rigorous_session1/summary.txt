@@ -1,0 +1,44 @@
+sessions: 1   runs: 390   invalid tok/s: 0
+distinct outputs: 1 (OK, all identical)
+thermal throttle events during runs: 39683   max temperature seen: 87 C
+
+== ranking (median tok/s, block-bootstrap 95% CI, x baseline C01_up_P4) ==
+  id                   n   median            95% CI   CV%  x base   setting
+  C08_team_PE12_g     30     1625      [1625, 1637]   2.0    2.57   team ACTIVE guided,16 cpus=0,1,2,3,4,5,6,7,8,9,10,11
+  C07_team_PE12       30     1619      [1601, 1637]   2.5    2.56   team ACTIVE static cpus=0,1,2,3,4,5,6,7,8,9,10,11
+  C11_ours_PE12       30     1619      [1567, 1625]   2.5    2.56   ours ACTIVE static cpus=0,1,2,3,4,5,6,7,8,9,10,11
+  C03_team_T9b        30     1579      [1562, 1590]   1.4    2.49   team ACTIVE guided,16 cpus=1,2,3,5,6,7,8,10,11
+  C04_team_T9c        30     1573      [1556, 1590]   1.6    2.48   team ACTIVE guided,16 cpus=0,2,3,5,6,7,8,10,11
+  C05_team_T9a        30     1524      [1524, 1535]   1.7    2.41   team ACTIVE guided,16 cpus=0,1,2,3,6,7,9,10,11
+  C09_team_PE10       30     1483      [1483, 1483]   0.6    2.34   team ACTIVE static cpus=0,2,4,5,6,7,8,9,10,11
+  C12_ours_T9b        30     1483      [1473, 1493]   0.9    2.34   ours ACTIVE static cpus=1,2,3,5,6,7,8,10,11
+  C06_team_T9b_def    30     1263      [1256, 1263]   1.9    1.99   team default guided,16 cpus=1,2,3,5,6,7,8,10,11
+  C10_team_P4         30     1052      [1052, 1057]   0.4    1.66   team ACTIVE guided,16 cpus=0,1,2,3
+  C13_omptmp_PE10     30      995       [991, 1002]   1.1    1.57   omptmp ACTIVE static cpus=0,2,4,5,6,7,8,9,10,11
+  C02_up_P4_act       30      716        [715, 718]   1.2    1.13   upstream ACTIVE static cpus=0,1,2,3
+  C01_up_P4           30      633        [633, 635]   2.3    1.00   upstream default static cpus=0,1,2,3
+
+== paired comparison with the fastest (C08_team_PE12_g): ratio of other / best within the same block ==
+  C07_team_PE12      0.993  CI [0.978, 1.007]  faster than best in 13/30 blocks  -> not distinguishable
+  C11_ours_PE12      0.993  CI [0.982, 1.000]  faster than best in 8/30 blocks  -> not distinguishable
+  C03_team_T9b       0.971  CI [0.964, 0.978]  faster than best in 3/30 blocks  -> slower (CI below 1)
+  C04_team_T9c       0.968  CI [0.954, 0.972]  faster than best in 3/30 blocks  -> slower (CI below 1)
+  C05_team_T9a       0.938  CI [0.931, 0.948]  faster than best in 0/30 blocks  -> slower (CI below 1)
+  C09_team_PE10      0.913  CI [0.906, 0.919]  faster than best in 0/30 blocks  -> slower (CI below 1)
+  C12_ours_T9b       0.913  CI [0.906, 0.919]  faster than best in 0/30 blocks  -> slower (CI below 1)
+  C06_team_T9b_def   0.771  CI [0.769, 0.777]  faster than best in 0/30 blocks  -> slower (CI below 1)
+  C10_team_P4        0.646  CI [0.645, 0.648]  faster than best in 0/30 blocks  -> slower (CI below 1)
+  C13_omptmp_PE10    0.613  CI [0.609, 0.616]  faster than best in 0/30 blocks  -> slower (CI below 1)
+  C02_up_P4_act      0.440  CI [0.438, 0.442]  faster than best in 0/30 blocks  -> slower (CI below 1)
+  C01_up_P4          0.388  CI [0.387, 0.391]  faster than best in 0/30 blocks  -> slower (CI below 1)
+
+== specific questions (paired, ratio first/second) ==
+  team 9 CPUs vs all 12            0.972  CI [0.964, 0.982]  first faster in 5/30
+  ours vs team (PE12)              0.996  CI [0.978, 1.011]  first faster in 13/30
+  ours vs team (9 CPUs)            0.943  CI [0.933, 0.947]  first faster in 0/30
+  ACTIVE effect (team 9 CPUs)      1.250  CI [1.246, 1.259]  first faster in 30/30
+  ACTIVE effect (original code)    1.130  CI [1.130, 1.133]  first faster in 30/30
+  guided vs static (PE12)          1.007  CI [0.993, 1.022]  first faster in 16/30
+
+== drift: median tok/s per quarter of the blocks, relative to the candidate's own median ==
+  session 1: 0.998  1.000  1.000  1.000

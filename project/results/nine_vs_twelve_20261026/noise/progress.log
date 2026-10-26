@@ -1,0 +1,34 @@
+[15:39:58] power profile: performance (was balanced)
+[15:39:58] downloading pinned sources
+[15:39:59] model: /home/denjo/Downloads/native_kit/stories15M.bin
+[15:39:59] building (gcc -Ofast -fopenmp -march=native)
+[15:40:00] warm-up: every combination once (not recorded)
+[15:40:07] resting 60s to measure the idle temperature (do not use the PC from now on)
+[15:41:12] idle 46 C; 4 candidates x 5 conditions x 25 blocks, each block after resting to <= 54 C
+[15:41:29]   block 1/25 (waited 10s, now 61 C)  elapsed 0 min, rough ETA 6 min
+[15:41:46]   block 2/25 (waited 10s, now 63 C)  elapsed 0 min, rough ETA 6 min
+[15:42:02]   block 3/25 (waited 10s, now 64 C)  elapsed 0 min, rough ETA 6 min
+[15:42:19]   block 4/25 (waited 10s, now 65 C)  elapsed 1 min, rough ETA 5 min
+[15:42:35]   block 5/25 (waited 10s, now 65 C)  elapsed 1 min, rough ETA 5 min
+[15:42:54]   block 6/25 (waited 13s, now 65 C)  elapsed 1 min, rough ETA 5 min
+[15:43:13]   block 7/25 (waited 12s, now 68 C)  elapsed 2 min, rough ETA 5 min
+[15:43:32]   block 8/25 (waited 12s, now 67 C)  elapsed 2 min, rough ETA 4 min
+[15:43:50]   block 9/25 (waited 12s, now 68 C)  elapsed 2 min, rough ETA 4 min
+[15:44:09]   block 10/25 (waited 12s, now 68 C)  elapsed 2 min, rough ETA 4 min
+[15:44:28]   block 11/25 (waited 12s, now 68 C)  elapsed 3 min, rough ETA 4 min
+[15:44:46]   block 12/25 (waited 12s, now 65 C)  elapsed 3 min, rough ETA 3 min
+[15:45:11]   block 13/25 (waited 18s, now 67 C)  elapsed 3 min, rough ETA 3 min
+[15:45:30]   block 14/25 (waited 12s, now 65 C)  elapsed 4 min, rough ETA 3 min
+[15:45:48]   block 15/25 (waited 12s, now 68 C)  elapsed 4 min, rough ETA 3 min
+[15:46:07]   block 16/25 (waited 12s, now 68 C)  elapsed 4 min, rough ETA 2 min
+[15:46:26]   block 17/25 (waited 12s, now 67 C)  elapsed 5 min, rough ETA 2 min
+[15:46:42]   block 18/25 (waited 10s, now 68 C)  elapsed 5 min, rough ETA 2 min
+[15:47:01]   block 19/25 (waited 12s, now 67 C)  elapsed 5 min, rough ETA 1 min
+[15:47:20]   block 20/25 (waited 12s, now 69 C)  elapsed 6 min, rough ETA 1 min
+[15:47:38]   block 21/25 (waited 12s, now 68 C)  elapsed 6 min, rough ETA 1 min
+[15:47:57]   block 22/25 (waited 12s, now 68 C)  elapsed 6 min, rough ETA 0 min
+[15:48:16]   block 23/25 (waited 12s, now 68 C)  elapsed 7 min, rough ETA 0 min
+[15:48:36]   block 24/25 (waited 14s, now 68 C)  elapsed 7 min, rough ETA 0 min
+[15:48:55]   block 25/25 (waited 12s, now 67 C)  elapsed 7 min, rough ETA 0 min
+[15:48:55] DONE. results: /home/denjo/llama_noise/results_EE00025_noise_20261026_153954.tar.gz
+[15:48:55] power profile restored to balanced

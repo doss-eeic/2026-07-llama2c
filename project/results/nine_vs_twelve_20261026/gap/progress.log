@@ -1,0 +1,64 @@
+[15:04:09] power profile: performance (was balanced)
+[15:04:09] downloading pinned sources
+[15:04:13] model: /home/denjo/Downloads/native_kit/stories15M.bin
+[15:04:13] building (gcc -Ofast -fopenmp -march=native)
+[15:04:14] warm-up: every candidate once (not recorded)
+[15:04:19] resting 120s to measure the idle temperature (do not use the PC from now on)
+[15:06:29] idle temperature 42 C -> cool blocks start at <= 50 C
+[15:06:29] 19 candidates per block, 50 blocks in phases: cool hot recover (about 30-45 min from here)
+[15:06:29] phase cool: 20 blocks, each after resting to <= 50 C
+[15:06:51]   cool block 1/20 (waited 18s, now 55 C)  elapsed 0 min, rough ETA 17 min
+[15:07:13]   cool block 2/20 (waited 18s, now 57 C)  elapsed 0 min, rough ETA 17 min
+[15:07:35]   cool block 3/20 (waited 18s, now 58 C)  elapsed 1 min, rough ETA 17 min
+[15:07:58]   cool block 4/20 (waited 18s, now 57 C)  elapsed 1 min, rough ETA 17 min
+[15:08:20]   cool block 5/20 (waited 18s, now 59 C)  elapsed 1 min, rough ETA 16 min
+[15:08:42]   cool block 6/20 (waited 18s, now 57 C)  elapsed 2 min, rough ETA 16 min
+[15:09:04]   cool block 7/20 (waited 18s, now 59 C)  elapsed 2 min, rough ETA 15 min
+[15:09:27]   cool block 8/20 (waited 18s, now 57 C)  elapsed 2 min, rough ETA 15 min
+[15:09:49]   cool block 9/20 (waited 18s, now 58 C)  elapsed 3 min, rough ETA 15 min
+[15:10:11]   cool block 10/20 (waited 18s, now 58 C)  elapsed 3 min, rough ETA 14 min
+[15:10:33]   cool block 11/20 (waited 18s, now 60 C)  elapsed 4 min, rough ETA 14 min
+[15:10:56]   cool block 12/20 (waited 18s, now 59 C)  elapsed 4 min, rough ETA 14 min
+[15:11:18]   cool block 13/20 (waited 18s, now 58 C)  elapsed 4 min, rough ETA 13 min
+[15:11:49]   cool block 14/20 (waited 27s, now 59 C)  elapsed 5 min, rough ETA 13 min
+[15:12:11]   cool block 15/20 (waited 18s, now 60 C)  elapsed 5 min, rough ETA 13 min
+[15:12:34]   cool block 16/20 (waited 18s, now 58 C)  elapsed 6 min, rough ETA 12 min
+[15:12:56]   cool block 17/20 (waited 18s, now 62 C)  elapsed 6 min, rough ETA 12 min
+[15:13:18]   cool block 18/20 (waited 18s, now 59 C)  elapsed 6 min, rough ETA 12 min
+[15:13:40]   cool block 19/20 (waited 18s, now 58 C)  elapsed 7 min, rough ETA 11 min
+[15:14:03]   cool block 20/20 (waited 19s, now 58 C)  elapsed 7 min, rough ETA 11 min
+[15:14:03] phase hot: heating with continuous load for 180s (now 57 C)
+[15:17:03] phase hot: 20 blocks back to back, no rest (now 69 C)
+[15:17:07]   hot block 1/20 (now 69 C)  elapsed 10 min, rough ETA 14 min
+[15:17:12]   hot block 2/20 (now 70 C)  elapsed 10 min, rough ETA 13 min
+[15:17:17]   hot block 3/20 (now 70 C)  elapsed 10 min, rough ETA 12 min
+[15:17:21]   hot block 4/20 (now 70 C)  elapsed 10 min, rough ETA 11 min
+[15:17:26]   hot block 5/20 (now 70 C)  elapsed 10 min, rough ETA 10 min
+[15:17:31]   hot block 6/20 (now 70 C)  elapsed 11 min, rough ETA 10 min
+[15:17:35]   hot block 7/20 (now 70 C)  elapsed 11 min, rough ETA 9 min
+[15:17:40]   hot block 8/20 (now 70 C)  elapsed 11 min, rough ETA 8 min
+[15:17:45]   hot block 9/20 (now 69 C)  elapsed 11 min, rough ETA 8 min
+[15:17:50]   hot block 10/20 (now 70 C)  elapsed 11 min, rough ETA 7 min
+[15:17:54]   hot block 11/20 (now 70 C)  elapsed 11 min, rough ETA 6 min
+[15:17:59]   hot block 12/20 (now 70 C)  elapsed 11 min, rough ETA 6 min
+[15:18:04]   hot block 13/20 (now 70 C)  elapsed 11 min, rough ETA 5 min
+[15:18:08]   hot block 14/20 (now 70 C)  elapsed 11 min, rough ETA 5 min
+[15:18:13]   hot block 15/20 (now 70 C)  elapsed 11 min, rough ETA 5 min
+[15:18:18]   hot block 16/20 (now 70 C)  elapsed 11 min, rough ETA 4 min
+[15:18:23]   hot block 17/20 (now 69 C)  elapsed 11 min, rough ETA 4 min
+[15:18:27]   hot block 18/20 (now 69 C)  elapsed 11 min, rough ETA 3 min
+[15:18:32]   hot block 19/20 (now 70 C)  elapsed 12 min, rough ETA 3 min
+[15:18:37]   hot block 20/20 (now 70 C)  elapsed 12 min, rough ETA 3 min
+[15:18:37] phase recover: 10 blocks, each after resting to <= 50 C
+[15:19:05]   recover block 1/10 (waited 24s, now 65 C)  elapsed 12 min, rough ETA 2 min
+[15:19:27]   recover block 2/10 (waited 18s, now 61 C)  elapsed 12 min, rough ETA 2 min
+[15:19:50]   recover block 3/10 (waited 18s, now 58 C)  elapsed 13 min, rough ETA 2 min
+[15:20:12]   recover block 4/10 (waited 18s, now 58 C)  elapsed 13 min, rough ETA 1 min
+[15:20:34]   recover block 5/10 (waited 18s, now 60 C)  elapsed 14 min, rough ETA 1 min
+[15:20:59]   recover block 6/10 (waited 21s, now 60 C)  elapsed 14 min, rough ETA 1 min
+[15:21:22]   recover block 7/10 (waited 18s, now 60 C)  elapsed 14 min, rough ETA 0 min
+[15:21:44]   recover block 8/10 (waited 18s, now 59 C)  elapsed 15 min, rough ETA 0 min
+[15:22:06]   recover block 9/10 (waited 18s, now 59 C)  elapsed 15 min, rough ETA 0 min
+[15:22:32]   recover block 10/10 (waited 21s, now 59 C)  elapsed 16 min, rough ETA 0 min
+[15:22:32] DONE. results: /home/denjo/llama_gap/results_EE00025_gap_20261026_150406.tar.gz
+[15:22:32] power profile restored to balanced

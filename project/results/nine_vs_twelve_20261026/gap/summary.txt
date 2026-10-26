@@ -1,0 +1,141 @@
+sessions: 1   runs: 950   invalid tok/s: 0
+distinct outputs: 1 (OK, all identical)
+
+== conditions per phase ==
+  cool     blocks  20  temp before run min/median/max 43/57/65 C  throttle events 0  rest per block median 18s
+  hot      blocks  20  temp before run min/median/max 69/70/70 C  throttle events 0
+  recover  blocks  10  temp before run min/median/max 47/58/64 C  throttle events 0  rest per block median 18s
+
+== ranking, phase cool (tok/s; 'team' = 1000 / mean ms per token, the team's statistic) ==
+  id                     n  median        95% CI   mean   team    min   CV%  xbase drops   note
+  S_PE12_gd16           20    1601   [1584,1601]   1583   1582   1473   2.6   2.51     0   all 12 threads, schedule sweep
+  P_PE12_static         20    1590   [1562,1613]   1586   1585   1514   2.2   2.50     0   persistent team with all 12 threads
+  S_PE12_static         20    1579   [1567,1601]   1575   1575   1493   2.0   2.48     0   all 12 threads, schedule sweep
+  X_T9b_gd16            20    1579   [1567,1584]   1578   1577   1556   0.9   2.48     0   check_top #2 (omp-tmp 1575)
+  G_PE12_static_g144    20    1573   [1556,1601]   1582   1581   1514   2.5   2.47     0   -g 144 (rigorous_check C07)
+  S_N9_gd4              20    1567   [1556,1567]   1562   1562   1493   1.2   2.46     0   team 9 CPUs, schedule sweep
+  S_N9_gd16             20    1567   [1567,1579]   1567   1567   1503   1.3   2.46     0   team 9 CPUs, schedule sweep
+  P_9to10_gd4           20    1567   [1556,1567]   1555   1555   1473   1.8   2.46     0   team recommendation: persistent, layers 9 -> output 10
+  S_PE12_gd4            20    1556   [1545,1562]   1549   1548   1483   1.8   2.44     0   all 12 threads, schedule sweep
+  X_PE10_gd4            20    1545   [1545,1551]   1548   1548   1535   0.5   2.43     0   P x1 + all 8 E
+  S_PE12_dyn16          20    1509   [1493,1519]   1503   1502   1435   1.5   2.37     0   all 12 threads, schedule sweep
+  S_N9_dyn16            20    1483   [1483,1493]   1487   1487   1473   0.6   2.33     0   team 9 CPUs, schedule sweep
+  S_N9_gd1              20    1473   [1468,1483]   1468   1467   1408   1.6   2.31     0   team 9 CPUs, schedule sweep
+  S_PE12_gd1            20    1454   [1444,1454]   1442   1441   1331   2.2   2.28     0   all 12 threads, schedule sweep
+  S_N9_static           20    1444   [1444,1454]   1443   1443   1381   1.2   2.27     0   team 9 CPUs, schedule sweep
+  X_LP12_gd4            20    1421   [1412,1426]   1419   1418   1390   0.8   2.23     0   12 physical cores incl. LP-E (team -10.6%)
+  W_N9_gd4_def          20    1235   [1228,1245]   1232   1232   1188   1.7   1.94     0   9 CPUs without ACTIVE
+  W_PE12_static_def     20    1195   [1188,1195]   1188   1188   1133   1.3   1.88     0   12 threads without ACTIVE
+  B_up_P4               20     637     [631,639]    633    633    609   1.2   1.00     0   original code, P-cores (baseline)
+
+== ranking, phase hot (tok/s; 'team' = 1000 / mean ms per token, the team's statistic) ==
+  id                     n  median        95% CI   mean   team    min   CV%  xbase drops   note
+  S_PE12_gd16           20    1454   [1417,1473]   1446   1445   1390   2.6   2.48     0   all 12 threads, schedule sweep
+  P_PE12_static         20    1445   [1417,1483]   1447   1446   1339   3.1   2.46     1   persistent team with all 12 threads
+  G_PE12_static_g144    20    1435   [1404,1454]   1435   1433   1348   3.5   2.45     0   -g 144 (rigorous_check C07)
+  X_T9b_gd16            20    1435   [1426,1435]   1433   1432   1390   1.7   2.45     0   check_top #2 (omp-tmp 1575)
+  S_N9_gd16             20    1417   [1408,1426]   1415   1415   1356   1.9   2.42     0   team 9 CPUs, schedule sweep
+  S_PE12_static         20    1403   [1394,1464]   1426   1424   1315   3.7   2.39     1   all 12 threads, schedule sweep
+  S_N9_gd4              20    1403   [1390,1421]   1409   1408   1348   1.8   2.39     0   team 9 CPUs, schedule sweep
+  S_PE12_gd4            20    1394   [1360,1412]   1391   1389   1292   3.8   2.38     2   all 12 threads, schedule sweep
+  P_9to10_gd4           20    1390   [1381,1430]   1399   1397   1323   2.9   2.37     2   team recommendation: persistent, layers 9 -> output 10
+  S_PE12_dyn16          20    1381   [1364,1399]   1382   1381   1339   2.1   2.36     0   all 12 threads, schedule sweep
+  X_PE10_gd4            20    1377   [1364,1394]   1384   1383   1315   2.4   2.35     0   P x1 + all 8 E
+  S_N9_dyn16            20    1352   [1327,1364]   1345   1345   1308   1.8   2.31     0   team 9 CPUs, schedule sweep
+  S_N9_static           20    1308   [1304,1312]   1306   1305   1256   1.5   2.23     0   team 9 CPUs, schedule sweep
+  S_N9_gd1              20    1308   [1308,1323]   1314   1314   1263   1.9   2.23     0   team 9 CPUs, schedule sweep
+  S_PE12_gd1            20    1289   [1252,1304]   1281   1279   1182   3.4   2.20     2   all 12 threads, schedule sweep
+  X_LP12_gd4            20    1228   [1221,1235]   1216   1215   1073   3.7   2.09     4   12 physical cores incl. LP-E (team -10.6%)
+  W_N9_gd4_def          20    1089   [1078,1097]   1088   1087   1038   2.0   1.86     2   9 CPUs without ACTIVE
+  W_PE12_static_def     20    1047   [1040,1057]   1045   1044    995   2.1   1.79     3   12 threads without ACTIVE
+  B_up_P4               20     586     [583,588]    585    585    562   1.4   1.00     0   original code, P-cores (baseline)
+
+== ranking, phase recover (tok/s; 'team' = 1000 / mean ms per token, the team's statistic) ==
+  id                     n  median        95% CI   mean   team    min   CV%  xbase drops   note
+  P_PE12_static         10    1601   [1590,1613]   1594   1593   1514   1.8   2.51     0   persistent team with all 12 threads
+  G_PE12_static_g144    10    1596   [1567,1649]   1598   1597   1493   3.0   2.51     0   -g 144 (rigorous_check C07)
+  S_PE12_gd16           10    1596   [1579,1601]   1584   1583   1493   2.1   2.51     0   all 12 threads, schedule sweep
+  S_PE12_static         10    1590   [1524,1601]   1570   1568   1503   2.6   2.50     0   all 12 threads, schedule sweep
+  S_N9_gd16             10    1573   [1556,1579]   1567   1566   1514   1.3   2.47     0   team 9 CPUs, schedule sweep
+  S_N9_gd4              10    1567   [1562,1579]   1569   1568   1556   0.5   2.46     0   team 9 CPUs, schedule sweep
+  X_T9b_gd16            10    1567   [1562,1579]   1572   1572   1545   1.1   2.46     0   check_top #2 (omp-tmp 1575)
+  S_PE12_gd4            10    1556   [1551,1556]   1549   1549   1483   1.5   2.44     0   all 12 threads, schedule sweep
+  P_9to10_gd4           10    1556   [1545,1562]   1550   1550   1493   1.3   2.44     0   team recommendation: persistent, layers 9 -> output 10
+  X_PE10_gd4            10    1545   [1535,1551]   1539   1539   1483   1.3   2.43     0   P x1 + all 8 E
+  S_PE12_dyn16          10    1524   [1509,1524]   1518   1518   1503   0.5   2.39     0   all 12 threads, schedule sweep
+  S_N9_dyn16            10    1483   [1473,1503]   1487   1487   1473   0.9   2.33     0   team 9 CPUs, schedule sweep
+  S_N9_gd1              10    1483   [1450,1488]   1470   1469   1399   2.2   2.33     0   team 9 CPUs, schedule sweep
+  S_N9_static           10    1454   [1444,1454]   1450   1450   1435   0.5   2.28     0   team 9 CPUs, schedule sweep
+  S_PE12_gd1            10    1454   [1422,1464]   1443   1443   1381   1.9   2.28     0   all 12 threads, schedule sweep
+  X_LP12_gd4            10    1426   [1421,1430]   1410   1409   1263   3.5   2.24     0   12 physical cores incl. LP-E (team -10.6%)
+  W_N9_gd4_def          10    1245   [1218,1252]   1236   1235   1188   1.8   1.95     0   9 CPUs without ACTIVE
+  W_PE12_static_def     10    1191   [1179,1198]   1185   1185   1133   1.6   1.87     0   12 threads without ACTIVE
+  B_up_P4               10     637     [635,638]    635    635    623   0.7   1.00     0   original code, P-cores (baseline)
+  (drops = runs below 0.85 x the candidate's cool-phase median)
+
+== questions: paired ratio first/second within the same block, median [95% CI] first-faster blocks ==
+   (* = CI excludes 1)
+                                                        cool                        hot                       recover           
+  Q1 team's own test: 9 / 12, both guided,4  1.007 [1.000,1.014] 11/20  1.016 [0.994,1.032] 11/20  1.007 [1.000,1.014]  7/10 
+  Q2 each at my best: 12 static / 9 guided,4 1.014*[1.004,1.022] 14/20  1.000 [0.994,1.043]  9/20  1.011 [0.972,1.025]  6/10 
+  Q3 12: guided,4 / static                   0.986*[0.965,0.997]  2/20  0.972 [0.948,1.003]  6/20  0.979 [0.972,1.021]  3/10 
+  Q3 9: guided,4 / static                    1.085*[1.074,1.089] 20/20  1.073*[1.063,1.087] 20/20  1.085*[1.071,1.086] 10/10 
+  Q3 12: guided,16 / static                  1.004 [0.996,1.025] 10/20  1.010 [1.000,1.033] 13/20  1.004 [0.993,1.029]  5/10 
+  Q4 12 static: g144 / g288                  1.000 [0.982,1.022]  7/20  1.016 [0.978,1.037] 11/20  1.026 [0.986,1.051]  7/10 
+  Q5 LP-E 12 guided,4 / 9 guided,4           0.904*[0.898,0.916]  0/20  0.872*[0.860,0.881]  0/20  0.907*[0.903,0.916]  0/10 
+  Q6 ACTIVE effect, 9 guided,4               1.269*[1.254,1.274] 20/20  1.288*[1.267,1.308] 20/20  1.259*[1.247,1.292] 10/10 
+  Q6 ACTIVE effect, 12 static                1.323*[1.313,1.336] 20/20  1.366*[1.316,1.416] 20/20  1.331*[1.295,1.350] 10/10 
+  Q6 no ACTIVE: 12 static / 9 guided,4       0.965*[0.952,0.973]  0/20  0.962*[0.946,0.976]  1/20  0.962*[0.944,0.976]  1/10 
+  Q7 persistent 9->10 / normal 9 g4          1.000 [0.989,1.004]  6/20  0.994 [0.972,1.022]  7/20  0.989*[0.986,0.996]  1/10 
+  Q7 persistent 9->10 / normal 12 static     0.982 [0.979,1.000]  5/20  0.987 [0.960,1.006]  7/20  0.982 [0.968,1.014]  3/10 
+  Q7 persistent 12 / normal 12 (static)      1.011 [0.993,1.029] 13/20  1.013 [0.981,1.057] 13/20  1.007 [1.000,1.036]  7/10 
+  Q8 check_top#2 guided,16 / 9 guided,4      1.007 [1.000,1.014] 12/20  1.016*[1.003,1.032] 14/20  1.000 [0.993,1.007]  4/10 
+  Q8 0,2,4-11 guided,4 / 9 guided,4          0.990*[0.986,0.993]  2/20  0.981*[0.972,0.987]  4/20  0.986*[0.972,0.993]  0/10 
+  best schedule each (cool): S_PE12_gd16 / S_N9_gd4   1.018*[1.007,1.022] 15/20
+  best schedule each (hot): S_PE12_gd16 / S_N9_gd16   1.026*[1.000,1.040] 14/20
+  best schedule each (recover): S_PE12_gd16 / S_N9_gd16   1.018 [1.000,1.029]  7/10
+
+== schedule curve: median tok/s relative to the same CPU set with static ==
+  phase cool:         static   dyn16     gd1     gd4    gd16
+    N9               1.000   1.027   1.020   1.085   1.085   (static = 1444)
+    PE12             1.000   0.956   0.921   0.986   1.014   (static = 1579)
+  phase hot:         static   dyn16     gd1     gd4    gd16
+    N9               1.000   1.034   1.000   1.073   1.083   (static = 1308)
+    PE12             1.000   0.984   0.918   0.994   1.036   (static = 1403)
+  phase recover:         static   dyn16     gd1     gd4    gd16
+    N9               1.000   1.020   1.020   1.078   1.082   (static = 1454)
+    PE12             1.000   0.959   0.914   0.979   1.004   (static = 1590)
+
+== temperature: paired ratio by the temperature just before the pair (all phases pooled) ==
+  12 static / 9 guided,4           0-60C: 1.014 (n26)     60-70C: 1.007 (n9)      70-80C: 1.000 (n15)     80-90C: -                >=90C: -             
+  12 guided,4 / 9 guided,4         0-60C: 0.993 (n28)     60-70C: 0.996 (n8)      70-80C: 0.982 (n14)     80-90C: -                >=90C: -             
+  persistent 9->10 / 12 static     0-60C: 0.986 (n27)     60-70C: 0.990 (n10)     70-80C: 0.980 (n13)     80-90C: -                >=90C: -             
+  tok/s median by temperature before the run:
+  S_PE12_static                    0-60C: 1579 (n25)      60-70C: 1556 (n10)      70-80C: 1399 (n15)      80-90C: -                >=90C: -             
+  S_N9_gd4                         0-60C: 1567 (n24)      60-70C: 1493 (n11)      70-80C: 1408 (n15)      80-90C: -                >=90C: -             
+  S_PE12_gd4                       0-60C: 1556 (n27)      60-70C: 1464 (n7)       70-80C: 1403 (n16)      80-90C: -                >=90C: -             
+  P_9to10_gd4                      0-60C: 1562 (n26)      60-70C: 1430 (n10)      70-80C: 1394 (n14)      80-90C: -                >=90C: -             
+  X_T9b_gd16                       0-60C: 1567 (n25)      60-70C: 1505 (n10)      70-80C: 1435 (n15)      80-90C: -                >=90C: -             
+
+== hot phase block by block: tok/s relative to the cool median ==
+  block  temp   S_PE12_static        S_N9_gd4      S_PE12_gd4     P_9to10_gd4
+      1    69           0.833           0.892           0.877           0.887
+      2    69           0.886           0.922           0.893           0.887
+      3    70           0.921           0.910           0.861           0.849
+      4    70           0.881           0.928           0.835           0.881
+      5    70           0.933           0.887           0.953           0.922
+      6    70           0.927           0.887           0.940           0.940
+      7    70           0.940           0.887           0.947           0.916
+      8    70           0.881           0.887           0.866           0.844
+      9    70           0.886           0.898           0.871           0.892
+     10    69           0.986           0.916           0.940           0.910
+     11    70           0.886           0.892           0.904           0.928
+     12    70           0.892           0.904           0.910           0.881
+     13    70           0.927           0.887           0.899           0.887
+     14    70           0.952           0.928           0.904           0.855
+     15    70           0.927           0.904           0.882           0.881
+     16    70           0.886           0.898           0.904           0.922
+     17    70           0.870           0.910           0.910           0.881
+     18    69           0.881           0.887           0.871           0.916
+     19    69           0.897           0.860           0.877           0.876
+     20    70           0.881           0.892           0.830           0.892

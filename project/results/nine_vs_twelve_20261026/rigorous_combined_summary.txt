@@ -1,0 +1,60 @@
+sessions: 2   runs: 780   invalid tok/s: 0
+distinct outputs: 1 (OK, all identical)
+thermal throttle events during runs: 153057   max temperature seen: 103 C
+
+== ranking (median tok/s, block-bootstrap 95% CI, x baseline C01_up_P4) ==
+  id                   n   median            95% CI   CV%  x base   setting
+  C08_team_PE12_g     60     1607      [1524, 1625]  31.3    2.94   team ACTIVE guided,16 cpus=0,1,2,3,4,5,6,7,8,9,10,11
+  C07_team_PE12       60     1596      [1545, 1613]  25.7    2.92   team ACTIVE static cpus=0,1,2,3,4,5,6,7,8,9,10,11
+  C11_ours_PE12       60     1567      [1503, 1613]  30.1    2.87   ours ACTIVE static cpus=0,1,2,3,4,5,6,7,8,9,10,11
+  C03_team_T9b        60     1556      [1540, 1567]   3.5    2.85   team ACTIVE guided,16 cpus=1,2,3,5,6,7,8,10,11
+  C04_team_T9c        60     1556      [1545, 1556]   5.8    2.85   team ACTIVE guided,16 cpus=0,2,3,5,6,7,8,10,11
+  C05_team_T9a        60     1524      [1493, 1524]  11.2    2.79   team ACTIVE guided,16 cpus=0,1,2,3,6,7,9,10,11
+  C09_team_PE10       60     1473      [1473, 1483]   3.6    2.70   team ACTIVE static cpus=0,2,4,5,6,7,8,9,10,11
+  C12_ours_T9b        60     1473      [1464, 1483]   3.6    2.70   ours ACTIVE static cpus=1,2,3,5,6,7,8,10,11
+  C10_team_P4         60     1047      [1042, 1052]   6.9    1.92   team ACTIVE guided,16 cpus=0,1,2,3
+  C06_team_T9b_def    60     1026       [656, 1256]  39.5    1.88   team default guided,16 cpus=1,2,3,5,6,7,8,10,11
+  C13_omptmp_PE10     60      972        [946, 991]   6.3    1.78   omptmp ACTIVE static cpus=0,2,4,5,6,7,8,9,10,11
+  C02_up_P4_act       60      715        [706, 715]   5.9    1.31   upstream ACTIVE static cpus=0,1,2,3
+  C01_up_P4           60      546        [439, 631]  25.3    1.00   upstream default static cpus=0,1,2,3
+
+== paired comparison with the fastest (C08_team_PE12_g): ratio of other / best within the same block ==
+  C07_team_PE12      0.996  CI [0.978, 1.007]  faster than best in 27/60 blocks  -> not distinguishable
+  C11_ours_PE12      0.996  CI [0.979, 1.004]  faster than best in 23/60 blocks  -> not distinguishable
+  C03_team_T9b       0.978  CI [0.971, 1.000]  faster than best in 22/60 blocks  -> not distinguishable
+  C04_team_T9c       0.971  CI [0.964, 0.993]  faster than best in 20/60 blocks  -> slower (CI below 1)
+  C05_team_T9a       0.944  CI [0.931, 0.956]  faster than best in 16/60 blocks  -> slower (CI below 1)
+  C09_team_PE10      0.919  CI [0.912, 0.940]  faster than best in 17/60 blocks  -> slower (CI below 1)
+  C12_ours_T9b       0.919  CI [0.913, 0.961]  faster than best in 17/60 blocks  -> slower (CI below 1)
+  C10_team_P4        0.648  CI [0.645, 0.659]  faster than best in 12/60 blocks  -> slower (CI below 1)
+  C06_team_T9b_def   0.763  CI [0.743, 0.771]  faster than best in 5/60 blocks  -> slower (CI below 1)
+  C13_omptmp_PE10    0.616  CI [0.610, 0.625]  faster than best in 12/60 blocks  -> slower (CI below 1)
+  C02_up_P4_act      0.442  CI [0.438, 0.447]  faster than best in 7/60 blocks  -> slower (CI below 1)
+  C01_up_P4          0.388  CI [0.386, 0.391]  faster than best in 2/60 blocks  -> slower (CI below 1)
+
+== specific questions (paired, ratio first/second) ==
+  team 9 CPUs vs all 12            0.978  CI [0.965, 0.987]  first faster in 19/60
+  ours vs team (PE12)              0.993  CI [0.968, 1.007]  first faster in 24/60
+  ours vs team (9 CPUs)            0.945  CI [0.939, 0.948]  first faster in 2/60
+  ACTIVE effect (team 9 CPUs)      1.531  CI [1.259, 2.301]  first faster in 60/60
+  ACTIVE effect (original code)    1.187  CI [1.133, 1.516]  first faster in 60/60
+  guided vs static (PE12)          1.004  CI [0.993, 1.022]  first faster in 30/60
+
+== drift: median tok/s per quarter of the blocks, relative to the candidate's own median ==
+  session 1: 1.011  1.011  1.010  1.014
+  session 2: 0.973  0.977  0.910  0.906
+
+== per-session median tok/s (reproducibility) ==
+  C08_team_PE12_g   s1: 1625  s2: 1334
+  C07_team_PE12     s1: 1619  s2: 1493
+  C11_ours_PE12     s1: 1619  s2: 1007
+  C03_team_T9b      s1: 1579  s2: 1514
+  C04_team_T9c      s1: 1573  s2: 1488
+  C05_team_T9a      s1: 1524  s2: 1459
+  C09_team_PE10     s1: 1483  s2: 1426
+  C12_ours_T9b      s1: 1483  s2: 1440
+  C10_team_P4       s1: 1052  s2: 953
+  C06_team_T9b_def  s1: 1263  s2: 601
+  C13_omptmp_PE10   s1: 995  s2: 925
+  C02_up_P4_act     s1: 716  s2: 667
+  C01_up_P4         s1: 633  s2: 395

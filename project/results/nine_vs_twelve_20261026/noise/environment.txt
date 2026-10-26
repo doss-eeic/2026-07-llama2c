@@ -1,0 +1,65 @@
+start=2026-10-26T15:40:00+09:00 host=EE00025 note= blocks=25
+initial_rest=60 cool_margin=8 rest_min=8 cool_max=30
+ac_online=1 original_profile=balanced profile=performance
+epp=performance thp=always [madvise] never
+Linux EE00025 7.0.0-38-generic #38~24.04.4-Ubuntu SMP PREEMPT_DYNAMIC Mon Sep 14 16:37:11 UTC 2 x86_64 x86_64 x86_64 GNU/Linux
+PRETTY_NAME="Ubuntu 24.04.3 LTS"
+NAME="Ubuntu"
+gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+Python 3.12.3
+model=/home/denjo/Downloads/native_kit/stories15M.bin sha256=cd590644d963867a
+source src/team/run/run.c sha256=37e781be6f0e689b
+source src/team/src/fused.h sha256=0bfe0ec30dfbd4ef
+source src/team/src/classifier.h sha256=bbb7e4ce556576ff
+source tokenizer.bin sha256=50a52ef822ee9e83
+commit: master=256b0b2445ecd2c8c88d085fdf616313d5df91f3
+
+cand N9_gd4|0,2,4,5,6,7,8,9,10|guided,4|team 9 CPUs, team setting
+cand PE12_gd4|0,1,2,3,4,5,6,7,8,9,10,11|guided,4|0-11, team setting (master-threads doc)
+cand PE12_static|0,1,2,3,4,5,6,7,8,9,10,11|static|0-11, static
+cand LP12_gd4|0,2,4,5,6,7,8,9,10,11,12,13|guided,4|12 physical cores incl. LP-E (leaves 1,3 idle)
+conditions: file sha py bg10 bg50
+
+CPU CORE    MAXMHZ   MINMHZ
+  0    0 4800.0000 400.0000
+  1    0 4800.0000 400.0000
+  2    1 4800.0000 400.0000
+  3    1 4800.0000 400.0000
+  4    2 3800.0000 400.0000
+  5    3 3800.0000 400.0000
+  6    4 3800.0000 400.0000
+  7    5 3800.0000 400.0000
+  8    6 3800.0000 400.0000
+  9    7 3800.0000 400.0000
+ 10    8 3800.0000 400.0000
+ 11    9 3800.0000 400.0000
+ 12   10 2400.0000 400.0000
+ 13   11 2400.0000 400.0000
+
+cache sharing (shared_cpu_list of the last level cache per CPU):
+  cpu0: 0-11
+  cpu1: 0-11
+  cpu10: 0-11
+  cpu11: 0-11
+  cpu12: 12-13
+  cpu13: 12-13
+  cpu2: 0-11
+  cpu3: 0-11
+  cpu4: 0-11
+  cpu5: 0-11
+  cpu6: 0-11
+  cpu7: 0-11
+  cpu8: 0-11
+  cpu9: 0-11
+
+other processes using CPU:
+%CPU COMMAND
+16.2 gnome-shell
+ 4.1 systemd
+ 3.5 snapd
+ 2.3 ibus-extension-
+ 1.6 systemd-journal
+ 1.3 gnome-terminal-
+ 1.3 kworker/u56:2-i915
+idle_temp=46 cool_temp=54
+end=2026-10-26T15:48:55+09:00 profile=performance

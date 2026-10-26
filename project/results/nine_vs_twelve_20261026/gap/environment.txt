@@ -1,0 +1,83 @@
+start=2026-10-26T15:04:14+09:00 host=EE00025 note=
+phases=cool hot recover cool_blocks=20 hot_blocks=20 recover_blocks=10
+initial_rest=120 cool_margin=8 cool_temp_given= rest_min=15 cool_max=60 recover_wait=300 heat_secs=180
+ac_online=1 supplies=AC=1,ucsi-source-psy-USBC000:001=0,ucsi-source-psy-USBC000:002=1 original_profile=balanced profile=performance
+epp=performance governor=powersave thp=always [madvise] never rapl_readable=no
+rapl constraint_0_name=long_term
+rapl constraint_1_name=short_term
+rapl constraint_2_name=peak_power
+rapl constraint_0_power_limit_uw=57000000
+rapl constraint_1_power_limit_uw=57000000
+rapl constraint_2_power_limit_uw=106000000
+rapl constraint_0_time_window_us=27983872
+rapl constraint_1_time_window_us=2440
+rapl constraint_2_time_window_us=
+Linux EE00025 7.0.0-38-generic #38~24.04.4-Ubuntu SMP PREEMPT_DYNAMIC Mon Sep 14 16:37:11 UTC 2 x86_64 x86_64 x86_64 GNU/Linux
+PRETTY_NAME="Ubuntu 24.04.3 LTS"
+NAME="Ubuntu"
+gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+model=/home/denjo/Downloads/native_kit/stories15M.bin sha256=cd590644d963867a
+source src/upstream/run.c sha256=9c4f2d5c6ae01b71
+source src/team/run/run.c sha256=37e781be6f0e689b
+source src/team/src/fused.h sha256=0bfe0ec30dfbd4ef
+source src/team/src/classifier.h sha256=bbb7e4ce556576ff
+source src/pt/run.c sha256=e5ecfe92c942d26e
+source src/pt/src/omp_pool.h sha256=10d5dd58fcbc2885
+source src/pt/src/classifier.h sha256=516fb2ac1d061da7
+source src/pt/src/fused.h sha256=f0a2b5fed9485470
+source src/pt/src/attention.h sha256=0f50bfca50d4adcc
+source tokenizer.bin sha256=50a52ef822ee9e83
+commits: master=256b0b2445ecd2c8c88d085fdf616313d5df91f3 persistent=f0e4ffbb58ec8e15243509a3f0604674a2fb7379
+
+cand B_up_P4|up|0,1,2,3|-|default|static|-|original code, P-cores (baseline)
+cand S_N9_static|team|0,2,4,5,6,7,8,9,10|-|ACTIVE|static|288|team 9 CPUs, schedule sweep
+cand S_PE12_static|team|0,1,2,3,4,5,6,7,8,9,10,11|-|ACTIVE|static|288|all 12 threads, schedule sweep
+cand S_N9_dyn16|team|0,2,4,5,6,7,8,9,10|-|ACTIVE|dynamic,16|288|team 9 CPUs, schedule sweep
+cand S_PE12_dyn16|team|0,1,2,3,4,5,6,7,8,9,10,11|-|ACTIVE|dynamic,16|288|all 12 threads, schedule sweep
+cand S_N9_gd1|team|0,2,4,5,6,7,8,9,10|-|ACTIVE|guided,1|288|team 9 CPUs, schedule sweep
+cand S_PE12_gd1|team|0,1,2,3,4,5,6,7,8,9,10,11|-|ACTIVE|guided,1|288|all 12 threads, schedule sweep
+cand S_N9_gd4|team|0,2,4,5,6,7,8,9,10|-|ACTIVE|guided,4|288|team 9 CPUs, schedule sweep
+cand S_PE12_gd4|team|0,1,2,3,4,5,6,7,8,9,10,11|-|ACTIVE|guided,4|288|all 12 threads, schedule sweep
+cand S_N9_gd16|team|0,2,4,5,6,7,8,9,10|-|ACTIVE|guided,16|288|team 9 CPUs, schedule sweep
+cand S_PE12_gd16|team|0,1,2,3,4,5,6,7,8,9,10,11|-|ACTIVE|guided,16|288|all 12 threads, schedule sweep
+cand G_PE12_static_g144|team|0,1,2,3,4,5,6,7,8,9,10,11|-|ACTIVE|static|144|-g 144 (rigorous_check C07)
+cand X_PE10_gd4|team|0,2,4,5,6,7,8,9,10,11|-|ACTIVE|guided,4|288|P x1 + all 8 E
+cand X_T9b_gd16|team|1,2,3,5,6,7,8,10,11|-|ACTIVE|guided,16|288|check_top #2 (omp-tmp 1575)
+cand X_LP12_gd4|team|0,2,4,5,6,7,8,9,10,11,12,13|-|ACTIVE|guided,4|288|12 physical cores incl. LP-E (team -10.6%)
+cand W_N9_gd4_def|team|0,2,4,5,6,7,8,9,10|-|default|guided,4|288|9 CPUs without ACTIVE
+cand W_PE12_static_def|team|0,1,2,3,4,5,6,7,8,9,10,11|-|default|static|288|12 threads without ACTIVE
+cand P_9to10_gd4|pt|0,2,4,5,6,7,8,9,10,11|9|ACTIVE|guided,4|288|team recommendation: persistent, layers 9 -> output 10
+cand P_PE12_static|pt|0,1,2,3,4,5,6,7,8,9,10,11|12|ACTIVE|static|288|persistent team with all 12 threads
+
+CPU CORE    MAXMHZ   MINMHZ
+  0    0 4800.0000 400.0000
+  1    0 4800.0000 400.0000
+  2    1 4800.0000 400.0000
+  3    1 4800.0000 400.0000
+  4    2 3800.0000 400.0000
+  5    3 3800.0000 400.0000
+  6    4 3800.0000 400.0000
+  7    5 3800.0000 400.0000
+  8    6 3800.0000 400.0000
+  9    7 3800.0000 400.0000
+ 10    8 3800.0000 400.0000
+ 11    9 3800.0000 400.0000
+ 12   10 2400.0000 400.0000
+ 13   11 2400.0000 400.0000
+
+ 15:04:14 up 0 min,  1 user,  load average: 1.43, 0.46, 0.16
+               total        used        free      shared  buff/cache   available
+Mem:           31588        1812       28461         300        2006       29775
+Swap:           7812           0        7812
+
+other processes using CPU:
+%CPU COMMAND
+16.8 gnome-shell
+ 5.0 snapd
+ 3.5 systemd
+ 2.8 ibus-extension-
+ 2.3 kworker/u56:2-i915
+ 1.9 gnome-terminal-
+ 1.7 user-session-he
+idle_temp=42 cool_temp=50
+end=2026-10-26T15:22:32+09:00 profile=performance supplies=AC=1,ucsi-source-psy-USBC000:001=0,ucsi-source-psy-USBC000:002=1
