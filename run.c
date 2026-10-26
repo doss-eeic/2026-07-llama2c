@@ -52,6 +52,7 @@ static int output_chunk = 128;
 // 固定し直すのは区間が変わるときだけ（1 トークンあたり 2 回）。
 // -B も -C も指定しないときは何もしない（これまでと同じ動き）。
 // スレッド i が毎回同じ OS スレッドになる前提なので、OMP_PROC_BIND は FALSE にする。
+// SECTION_WORKERS=pool のときは、OpenMP の代わりに下の常駐ワーカーを使う（固定し直しもしない）。
 
 #ifdef _OPENMP
     #include <omp.h>
@@ -113,6 +114,137 @@ bad:
 }
 #endif
 
+// ----------------------------------------------------------------------------
+// 常駐ワーカー（SECTION_WORKERS=pool のとき、区間の parallel 領域で OpenMP の代わりに使う）
+//
+// OpenMP では、区間でスレッド数が変わるたびに libgomp がスレッドを終了・作成する。
+// スレッド数を揃えると、今度は仕事のないスレッドまで parallel 領域ごとの同期に参加する。
+// そこで起動時に -B と -C の CPU それぞれに 1 本ずつスレッドを作って固定し、以後は作り直しも移動もしない。
+// メインスレッドは -B の先頭の CPU に固定し、自分の CPU が今の区間に入っていればその分を計算する。
+// 仕事は今の区間の CPU のワーカーにだけ渡し、終わるのを待つのもそのワーカーだけ。
+// 待つときはスピンする（pause 命令）。
+
+typedef void (*SectionFn)(void* ctx, int k0, int k1); // [k0, k1) を計算する
+
+static int pool_on = 0; // 常駐ワーカーを使うなら 1
+
+#ifdef SECTION_BIND
+#include <pthread.h>
+
+// ワーカー 1 本分の受け取り口。メインスレッドが fn ～ k1 を書いてから gen を増やす。
+// ワーカーごとに別のキャッシュラインに置き、仕事のないワーカーには一切書かない
+typedef struct {
+    _Alignas(64) unsigned gen; // 仕事を渡すたびに 1 増える
+    SectionFn fn;
+    void* ctx;
+    int k0, k1;
+    int cpu;
+} PoolWorker;
+
+static PoolWorker pool_workers[MAX_SECTION_CPUS * 2];
+static int pool_n_workers = 0;
+static PoolWorker* pool_team[2][MAX_SECTION_CPUS]; // [区間][i] は cpus[i] のワーカー。NULL はメインスレッド
+static struct { _Alignas(64) int n; } pool_done;   // 今の仕事を終えたワーカーの数
+
+static inline void pool_relax(void) {
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#endif
+}
+
+static void* pool_worker_main(void* arg) {
+    PoolWorker* wk = arg;
+    unsigned seen = 0;
+    for (;;) {
+        unsigned g;
+        while ((g = __atomic_load_n(&wk->gen, __ATOMIC_ACQUIRE)) == seen) { pool_relax(); }
+        seen = g;
+        wk->fn(wk->ctx, wk->k0, wk->k1);
+        __atomic_fetch_add(&pool_done.n, 1, __ATOMIC_RELEASE);
+    }
+    return NULL;
+}
+
+static void pool_pin(cpu_set_t* set, int cpu) {
+    CPU_ZERO(set);
+    CPU_SET(cpu, set);
+}
+
+// メインスレッドを固定し、ワーカーを作る（プロセスが終わるまでスピンし続ける）
+static void pool_start(void) {
+    if (cpu_sections[SEC_BODY].n == 0 || cpu_sections[SEC_CLS].n == 0) {
+        fprintf(stderr, "SECTION_WORKERS=pool needs both -B and -C\n");
+        exit(EXIT_FAILURE);
+    }
+    int main_cpu = cpu_sections[SEC_BODY].cpus[0];
+    cpu_set_t set;
+    pool_pin(&set, main_cpu);
+    if (sched_setaffinity(0, sizeof(set), &set) != 0) {
+        fprintf(stderr, "failed to pin the main thread to CPU %d\n", main_cpu);
+        exit(EXIT_FAILURE);
+    }
+    for (int id = 0; id < 2; id++) {
+        const CpuSection* sec = &cpu_sections[id];
+        for (int i = 0; i < sec->n; i++) {
+            int cpu = sec->cpus[i];
+            for (int j = 0; j < i; j++) {
+                if (sec->cpus[j] == cpu) {
+                    fprintf(stderr, "SECTION_WORKERS=pool: CPU %d appears twice\n", cpu);
+                    exit(EXIT_FAILURE);
+                }
+            }
+            PoolWorker* wk = NULL;
+            if (cpu != main_cpu) {
+                for (int w = 0; w < pool_n_workers; w++) {
+                    if (pool_workers[w].cpu == cpu) { wk = &pool_workers[w]; }
+                }
+                if (wk == NULL) {
+                    wk = &pool_workers[pool_n_workers++];
+                    wk->cpu = cpu;
+                    // 最初からその CPU で動き出すように、作る前に固定する
+                    pthread_attr_t attr;
+                    pthread_t thread;
+                    pool_pin(&set, cpu);
+                    pthread_attr_init(&attr);
+                    pthread_attr_setaffinity_np(&attr, sizeof(set), &set);
+                    if (pthread_create(&thread, &attr, pool_worker_main, wk) != 0) {
+                        fprintf(stderr, "failed to start a worker on CPU %d\n", cpu);
+                        exit(EXIT_FAILURE);
+                    }
+                    pthread_attr_destroy(&attr);
+                }
+            }
+            pool_team[id][i] = wk;
+        }
+    }
+    pool_on = 1;
+}
+
+// 今の区間の CPU で [0, n) を均等に分けて fn を実行し、全部終わるまで待つ
+static void pool_run(SectionFn fn, void* ctx, int n) {
+    const CpuSection* sec = &cpu_sections[section_cur];
+    int k0_main = 0, k1_main = 0, sent = 0;
+    // 次の gen の書き込み（release）より前なので、ワーカーが足すのはこの 0 より後になる
+    __atomic_store_n(&pool_done.n, 0, __ATOMIC_RELAXED);
+    for (int i = 0; i < sec->n; i++) {
+        int k0 = (int)((long)n * i / sec->n);
+        int k1 = (int)((long)n * (i + 1) / sec->n);
+        PoolWorker* wk = pool_team[section_cur][i];
+        if (wk == NULL) { k0_main = k0; k1_main = k1; continue; }
+        wk->fn = fn;
+        wk->ctx = ctx;
+        wk->k0 = k0;
+        wk->k1 = k1;
+        __atomic_store_n(&wk->gen, __atomic_load_n(&wk->gen, __ATOMIC_RELAXED) + 1, __ATOMIC_RELEASE);
+        sent++;
+    }
+    if (k1_main > k0_main) { fn(ctx, k0_main, k1_main); }
+    while (__atomic_load_n(&pool_done.n, __ATOMIC_ACQUIRE) < sent) { pool_relax(); }
+}
+#else
+static void pool_run(SectionFn fn, void* ctx, int n) { fn(ctx, 0, n); }
+#endif
+
 static void setup_sections(const char* body_cpus, const char* cls_cpus) {
 #ifdef _OPENMP
     section_threads = omp_get_max_threads();
@@ -129,6 +261,14 @@ static void setup_sections(const char* body_cpus, const char* cls_cpus) {
     omp_set_dynamic(0); // スレッド数を勝手に減らされないようにする
     sched_getaffinity(0, sizeof(section_default_set), &section_default_set);
     section_bind = 1;
+
+    const char* workers = getenv("SECTION_WORKERS");
+    if (workers != NULL && strcmp(workers, "pool") == 0) {
+        pool_start();
+    } else if (workers != NULL && strcmp(workers, "omp") != 0) {
+        fprintf(stderr, "Invalid SECTION_WORKERS (use omp or pool)\n");
+        exit(EXIT_FAILURE);
+    }
 #else
     if (body_cpus != NULL || cls_cpus != NULL) {
         fprintf(stderr, "warning: -B / -C need Linux + OpenMP, ignored\n");
@@ -140,6 +280,7 @@ static void setup_sections(const char* body_cpus, const char* cls_cpus) {
 static void enter_section(SectionId id) {
     if (!section_bind || id == section_cur) { return; }
     section_cur = id;
+    if (pool_on) { return; } // 常駐ワーカーは固定したまま
 #ifdef SECTION_BIND
     const CpuSection* sec = &cpu_sections[id];
     section_threads = sec->n > 0 ? sec->n : omp_get_max_threads();
@@ -396,9 +537,32 @@ void softmax(float* x, int size) {
     }
 }
 
+typedef struct { float* xout; float* x; float* w; int n; } MatmulJob;
+
+// 常駐ワーカー用: 行 [i0, i1) を計算する（下の matmul と同じ形のループ）
+static void matmul_rows(void* ctx, int i0, int i1) {
+    const MatmulJob* job = ctx;
+    float* xout = job->xout;
+    float* x = job->x;
+    float* w = job->w;
+    int n = job->n;
+    for (int i = i0; i < i1; i++) {
+        float val = 0.0f;
+        for (int j = 0; j < n; j++) {
+            val += w[i * n + j] * x[j];
+        }
+        xout[i] = val;
+    }
+}
+
 void matmul(float* xout, float* x, float* w, int n, int d) {
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
+    if (pool_on) {
+        MatmulJob job = { xout, x, w, n };
+        pool_run(matmul_rows, &job, d);
+        return;
+    }
     int i;
     #pragma omp parallel for private(i) schedule(runtime) num_threads(section_num_threads())
     for (i = 0; i < d; i++) {
@@ -624,16 +788,19 @@ static void cls_quantize_x(Classifier* c, const float* x, int n) {
 //   それ以外の行は fp32 で計算しても L 未満なので argmax にならない。計算し直す行は matmul と同じ形の
 //   ループで計算し、fp32 の matmul とビット単位で同じ値にするので、greedy の出力は fp32 と完全に一致する。
 //   候補でない行には近似値が残るが、どれも L 未満なので argmax は変わらない（temperature > 0 では使えない）。
-static void cls_rescore(Transformer* t, float* xout, float* x, int n_blocks) {
-    Classifier* c = &t->cls;
-    int n = t->config.dim;
-    int d = t->config.vocab_size;
-    float* w = t->weights.wcls;
-    float lo = c->blk_lo[0];
-    for (int b = 1; b < n_blocks; b++) { lo = fmaxf(lo, c->blk_lo[b]); }
-    int b;
-    #pragma omp parallel for private(b) num_threads(section_num_threads())
-    for (b = 0; b < n_blocks; b++) {
+typedef struct { Transformer* t; float* xout; float* x; float lo; ClsRowsFn rows; } ClsJob;
+
+// 2段目のブロック [b0, b1) を計算し直す
+static void cls_rescore_blocks(void* ctx, int b0, int b1) {
+    const ClsJob* job = ctx;
+    Classifier* c = &job->t->cls;
+    int n = job->t->config.dim;
+    int d = job->t->config.vocab_size;
+    float* w = job->t->weights.wcls;
+    float* xout = job->xout;
+    float* x = job->x;
+    float lo = job->lo;
+    for (int b = b0; b < b1; b++) {
         int r0 = b * CLS_BLOCK;
         int r1 = r0 + CLS_BLOCK < d ? r0 + CLS_BLOCK : d;
         int cand = 0;
@@ -649,11 +816,42 @@ static void cls_rescore(Transformer* t, float* xout, float* x, int n_blocks) {
         }
         c->blk_cand[b] = cand;
     }
+}
+
+static void cls_rescore(Transformer* t, float* xout, float* x, int n_blocks) {
+    Classifier* c = &t->cls;
+    float lo = c->blk_lo[0];
+    for (int b = 1; b < n_blocks; b++) { lo = fmaxf(lo, c->blk_lo[b]); }
+    ClsJob job = { t, xout, x, lo, NULL };
+    if (pool_on) {
+        pool_run(cls_rescore_blocks, &job, n_blocks);
+    } else {
+        int b;
+        #pragma omp parallel for private(b) num_threads(section_num_threads())
+        for (b = 0; b < n_blocks; b++) { cls_rescore_blocks(&job, b, b + 1); }
+    }
     int total = 0;
     for (int k = 0; k < n_blocks; k++) { total += c->blk_cand[k]; }
     c->n_calls++;
     c->n_cand += total;
     if (total > c->max_cand) { c->max_cand = total; }
+}
+
+// 1段目のブロック [b0, b1) の int8 の近似値と、ブロックごとの下限の最大を計算する
+static void cls_int8_blocks(void* ctx, int b0, int b1) {
+    const ClsJob* job = ctx;
+    Classifier* c = &job->t->cls;
+    int n = job->t->config.dim;
+    int d = job->t->config.vocab_size;
+    float* xout = job->xout;
+    for (int b = b0; b < b1; b++) {
+        int r0 = b * CLS_BLOCK;
+        int r1 = r0 + CLS_BLOCK < d ? r0 + CLS_BLOCK : d;
+        job->rows(xout, c, n, r0, r1);
+        float lo = xout[r0] - c->bound[r0];
+        for (int i = r0 + 1; i < r1; i++) { lo = fmaxf(lo, xout[i] - c->bound[i]); }
+        c->blk_lo[b] = lo;
+    }
 }
 
 // xout (vocab_size,) = wcls (vocab_size, dim) @ x (dim,)。計算方法は t->cls.type で選ぶ
@@ -666,19 +864,66 @@ static void classifier_matmul(Transformer* t, float* xout, float* x) {
         return;
     }
     cls_quantize_x(c, x, n);
-    ClsRowsFn rows = cls_rows_fn(c->isa);
     int n_blocks = (d + CLS_BLOCK - 1) / CLS_BLOCK;
-    int b;
-    #pragma omp parallel for private(b) num_threads(section_num_threads())
-    for (b = 0; b < n_blocks; b++) {
-        int r0 = b * CLS_BLOCK;
-        int r1 = r0 + CLS_BLOCK < d ? r0 + CLS_BLOCK : d;
-        rows(xout, c, n, r0, r1);
-        float lo = xout[r0] - c->bound[r0];
-        for (int i = r0 + 1; i < r1; i++) { lo = fmaxf(lo, xout[i] - c->bound[i]); }
-        c->blk_lo[b] = lo;
+    ClsJob job = { t, xout, x, 0.0f, cls_rows_fn(c->isa) };
+    if (pool_on) {
+        pool_run(cls_int8_blocks, &job, n_blocks);
+    } else {
+        int b;
+        #pragma omp parallel for private(b) num_threads(section_num_threads())
+        for (b = 0; b < n_blocks; b++) { cls_int8_blocks(&job, b, b + 1); }
     }
     cls_rescore(t, xout, x, n_blocks);
+}
+
+typedef struct { Config* p; RunState* s; int loff; int pos; } AttentionJob;
+
+// ヘッド [h0, h1) の multihead attention を計算する
+static void attention_heads(void* ctx, int h0, int h1) {
+    const AttentionJob* job = ctx;
+    Config* p = job->p;
+    RunState* s = job->s;
+    int loff = job->loff;
+    int pos = job->pos;
+    int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
+    int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
+    int head_size = p->dim / p->n_heads;
+    for (int h = h0; h < h1; h++) {
+        // get the query vector for this head
+        float* q = s->q + h * head_size;
+        // attention scores for this head
+        float* att = s->att + h * p->seq_len;
+        // iterate over all timesteps, including the current one
+        for (int t = 0; t <= pos; t++) {
+            // get the key vector for this head and at this timestep
+            float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+            // calculate the attention score as the dot product of q and k
+            float score = 0.0f;
+            for (int i = 0; i < head_size; i++) {
+                score += q[i] * k[i];
+            }
+            score /= sqrtf(head_size);
+            // save the score to the attention buffer
+            att[t] = score;
+        }
+
+        // softmax the scores to get attention weights, from 0..pos inclusively
+        softmax(att, pos + 1);
+
+        // weighted sum of the values, store back into xb
+        float* xb = s->xb + h * head_size;
+        memset(xb, 0, head_size * sizeof(float));
+        for (int t = 0; t <= pos; t++) {
+            // get the value vector for this head and at this timestep
+            float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+            // get the attention weight for this timestep
+            float a = att[t];
+            // accumulate the weighted value into xb
+            for (int i = 0; i < head_size; i++) {
+                xb[i] += a * v[i];
+            }
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -711,7 +956,6 @@ float* forward(Transformer* transformer, int token, int pos) {
     float *x = s->x;
     int dim = p->dim;
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
-    int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
     int hidden_dim =  p->hidden_dim;
     int head_size = dim / p->n_heads;
 
@@ -753,43 +997,13 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // multihead attention. iterate over all heads
-        int h;
-        #pragma omp parallel for private(h) num_threads(section_num_threads())
-        for (h = 0; h < p->n_heads; h++) {
-            // get the query vector for this head
-            float* q = s->q + h * head_size;
-            // attention scores for this head
-            float* att = s->att + h * p->seq_len;
-            // iterate over all timesteps, including the current one
-            for (int t = 0; t <= pos; t++) {
-                // get the key vector for this head and at this timestep
-                float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // calculate the attention score as the dot product of q and k
-                float score = 0.0f;
-                for (int i = 0; i < head_size; i++) {
-                    score += q[i] * k[i];
-                }
-                score /= sqrtf(head_size);
-                // save the score to the attention buffer
-                att[t] = score;
-            }
-
-            // softmax the scores to get attention weights, from 0..pos inclusively
-            softmax(att, pos + 1);
-
-            // weighted sum of the values, store back into xb
-            float* xb = s->xb + h * head_size;
-            memset(xb, 0, head_size * sizeof(float));
-            for (int t = 0; t <= pos; t++) {
-                // get the value vector for this head and at this timestep
-                float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // get the attention weight for this timestep
-                float a = att[t];
-                // accumulate the weighted value into xb
-                for (int i = 0; i < head_size; i++) {
-                    xb[i] += a * v[i];
-                }
-            }
+        AttentionJob att_job = { p, s, loff, pos };
+        if (pool_on) {
+            pool_run(attention_heads, &att_job, p->n_heads);
+        } else {
+            int h;
+            #pragma omp parallel for private(h) num_threads(section_num_threads())
+            for (h = 0; h < p->n_heads; h++) { attention_heads(&att_job, h, h + 1); }
         }
 
         // final matmul to get the output of the attention
@@ -1420,6 +1634,7 @@ void error_usage() {
     fprintf(stderr, "  -C <string> (optional) CPUs for the output layer, same format as -B\n");
     fprintf(stderr, "              -B / -C need OMP_PROC_BIND=FALSE; an omitted one uses all CPUs at startup\n");
     fprintf(stderr, "              (threads: OMP_NUM_THREADS for -B, OUTPUT_THREADS for -C); -C overrides OUTPUT_THREADS\n");
+    fprintf(stderr, "              SECTION_WORKERS=pool runs both sections on persistent pinned workers (default: omp)\n");
     exit(EXIT_FAILURE);
 }
 
