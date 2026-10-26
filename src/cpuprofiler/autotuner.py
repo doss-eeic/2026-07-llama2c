@@ -2,9 +2,11 @@ from .benchmark import BenchmarkConfig, BenchmarkResult, BenchmarkRunner
 from .topology import CPUTopology
 
 # 探索する区間
-#   None   : 全体（taskset で全体の cpu を決める。評価は tok/s）
-#   "body" : 出力層以外（run.c の -B。評価は body_ms_per_token）
-#   "cls"  : 出力層（run.c の -C。評価は cls_ms_per_token）
+#   None   : 全体（taskset で全体の cpu を決める）
+#   "body" : 出力層以外（run.c の -B）
+#   "cls"  : 出力層（run.c の -C）
+# どの区間を探すときも、評価は全体の tok/s にする。区間の時間だけで比べると、
+# 区間を切り替える時間（スレッドの作り直しや移動）が、切り替えた先の区間の時間に入って見えなくなるため
 SECTIONS = (None, "body", "cls")
 
 
@@ -50,24 +52,13 @@ class AutoTuner:
         raise ValueError(f"Invalid section: {section}")
 
     @staticmethod
-    def score(result: BenchmarkResult, section=None):
-        # 大きいほど良い値を返す
-        if section is None:
-            return result.tokens_per_second
+    def score(result: BenchmarkResult):
+        # 大きいほど良い値を返す（全体の tok/s。SECTIONS のコメントを参照）
+        return result.tokens_per_second
 
-        ms = (
-            result.body_ms_per_token if section == "body"
-            else result.cls_ms_per_token
-        )
-        if ms is None:
-            raise RuntimeError(
-                "Section timer not found. Rebuild build/omp-run from run.c"
-            )
-        return -ms
-
-    def best(self, results, section=None):
+    def best(self, results):
         # (BenchmarkConfig, BenchmarkResult) のリストから一番良いものを返す
-        return max(results, key=lambda x: self.score(x[1], section))
+        return max(results, key=lambda x: self.score(x[1]))
 
     def search(self, args="Sample"):
         candidates = self.generate_fixed_candidates(args)
@@ -110,7 +101,7 @@ class AutoTuner:
         # section の cpu だけを 1 つずつ増やす。もう片方の区間は fixed のまま
         sorted_results = sorted(
             pre_results,
-            key=lambda x: self.score(x[1], section),
+            key=lambda x: self.score(x[1]),
             reverse=True
         )
 
@@ -168,12 +159,12 @@ class AutoTuner:
             results = self.beam_search(
                 max_depth=max_depth_body, n=n, section="body", fixed=cls_best
             )
-            body_best = self.best(results, "body")[0].body_cpus
+            body_best = self.best(results)[0].body_cpus
 
             results = self.beam_search(
                 max_depth=max_depth_cls, n=n, section="cls", fixed=body_best
             )
-            cls_best = self.best(results, "cls")[0].cls_cpus
+            cls_best = self.best(results)[0].cls_cpus
 
         config = BenchmarkConfig(
             body_cpus=body_best, cls_cpus=cls_best, classifier=self.classifier
