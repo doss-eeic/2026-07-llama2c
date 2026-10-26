@@ -9,19 +9,32 @@ import struct
 import time
 from collections import defaultdict
 
+def mean_result(rows):
+    """同じ構成の複数回の結果を、ms/tokenの平均を持つ1つの結果にまとめる。"""
+    return replace(rows[-1], tokens_per_second=1000 / statistics.fmean(r.ms_per_token for r in rows))
+
+
 class AutoTuner:
     def __init__(self, topology: CPUTopology, runner: BenchmarkRunner):
         self.topology = topology
         self.runner = runner
-        self.history = []
+        self.history = []  # 実際に走らせた測定だけ
+        self.cache = {}  # BenchmarkConfig→結果。evaluate(cached=True)でだけ読み書きする
 
-    def evaluate(self, config):
+    def evaluate(self, config, cached=False):
+        """cached=Trueなら同じ構成の既知の結果(キャリブレーションの平均を含む)を再利用する。"""
+        if cached and config in self.cache:
+            return self.cache[config]
         result = self.runner.run(config)
         self.history.append(result)
+        if cached:
+            self.cache[config] = result
         return result
 
     def calibrate(self, config=None, repeats=3, tolerance=0.05, seed=0):
-        return DomainCalibrator(self.topology, self.evaluate, config, repeats, tolerance, seed).calibrate()
+        calibrated = DomainCalibrator(self.topology, self.evaluate, config, repeats, tolerance, seed).calibrate()
+        self.cache.update(calibrated.results)
+        return calibrated
 
     def _domain_kinds(self, calibrated=None):
         """(型, 物理コア列)の一覧。calibratedがあれば実測で検証したDomainClass.idを型にする。"""
@@ -161,6 +174,7 @@ class AutoTuner:
 
         warmup → キャリブレーション(calibratedが無いとき) → CPU探索 → 補助設定調整 → 独立確認。
         追加後の配置はDomainClassで正規化し、同型の配置は1回だけ測る。
+        キャリブレーションを含め、同じ構成の結果は再利用する(warmupと独立確認は毎回測る)。
         補助設定(OpenMPのschedule/wait/proc_bind、g)はCPU探索の上位top_k配置だけで探す。
         """
         started, history_start = time.perf_counter(), len(self.history)
@@ -168,6 +182,7 @@ class AutoTuner:
         search.warmup()
         if calibrated is None:
             calibrated = self.calibrate(search.config, calibration_repeats, tolerance, seed)
+        self.cache.update(calibrated.results)  # 1CPU構成と同型候補のDomain全体はCPU探索で測り直さない
         search.prepare(calibrated)
         search.grow()
         search.tune_runtime()
@@ -268,6 +283,7 @@ class DomainCalibrator:
         cpus = tuple(sorted(topology.cpus))
         self.config = config or BenchmarkConfig(cpus=cpus, threads=len(cpus))
         self.repeats, self.tolerance, self.rng = repeats, tolerance, random.Random(seed)
+        self.results = {}
 
     def calibrate(self):
         domains = build_domains(self.topology)
@@ -283,17 +299,19 @@ class DomainCalibrator:
         groups.sort(key=lambda group: min(domain.id for domain in group))
         classes = tuple(DomainClass(i, tuple(sorted(group, key=lambda d: d.id)))
                         for i, group in enumerate(groups))
-        return CalibratedTopology(self.topology, domains, profiles, classes)
+        return CalibratedTopology(self.topology, domains, profiles, classes, self.results)
 
     def _measure(self, cases):
-        samples = {cpus: [] for cpus in cases}
+        runs = {cpus: [] for cpus in cases}
         for _ in range(self.repeats):
-            order = list(samples)
+            order = list(runs)
             self.rng.shuffle(order)  # ターボや温度の時系列バイアスをCPU番号に乗せない
             for cpus in order:
                 case = replace(self.config, cpus=cpus, threads=len(cpus), omp_places=None)
-                samples[cpus].append(self.benchmark(case).ms_per_token)
-        return samples
+                runs[cpus].append(self.benchmark(case))
+        for rows in runs.values():
+            self.results[rows[0].config] = mean_result(rows)
+        return {cpus: [r.ms_per_token for r in rows] for cpus, rows in runs.items()}
 
     @staticmethod
     def _std(values):
@@ -340,18 +358,26 @@ class DomainCalibrator:
 class LayoutSearch:
     """kasikoi2_serchの状態と各段階。
 
-    measuredは探索中の測定(BenchmarkConfig→結果)、layoutsはCPU配置→ms/token、
+    measuredは探索で使った結果(BenchmarkConfig→結果、キャッシュから再利用したものを含む)、layoutsはCPU配置→ms/token、
     stagesはスレッド数ごとの(測定した配置→ms/token)、tunedは上位配置ごとの補助設定調整後の構成。
     """
-    # CPU配置が決まった後に試す補助設定(この順に1つずつ決める)。
-    # OMP_PLACESは各CPUを1つずつ並べるので、proc_bindはclose/spreadで差が出ずfalse(固定なし)だけ比べる。
+    # CPU配置が決まった後に試す補助設定。座標降下でこの順に1項目ずつ最良値に固定し、
+    # 1周で何か変わればTUNE_PASSES周まで繰り返す(scheduleとg、waitとspincountの相互作用を拾う)。
     RUNTIME_OPTIONS = {
-        "omp_schedule": ("static", "dynamic,16", "dynamic,64", "guided"),
-        "group_size": (96, 144, 288),
+        "omp_schedule": ("static", "static,1", "static,4", "static,16",
+                         "dynamic,1", "dynamic,4", "dynamic,8", "dynamic,16", "dynamic,32", "dynamic,64",
+                         "guided", "guided,1", "guided,2", "guided,4", "guided,8", "guided,16", "auto"),
+        "group_size": None,  # two_stage_argmax時だけ、dimの約数(MIN_GROUP以上)すべて
         "omp_wait_policy": (None, "ACTIVE", "PASSIVE"),
-        "gomp_spincount": (None, 0, 10000, 1000000),
+        "gomp_spincount": (None, 0, 1000, 10000, 100000, 1000000, 10000000),
+        # OMP_PLACESは各CPUを1つずつ並べるので、proc_bindはclose/spreadで差が出ずfalse(固定なし)だけ比べる
         "omp_proc_bind": ("close", "false"),
+        "omp_dynamic": (False, True),
+        # スレッドを置くCPUの順。0番スレッド(マスター)が先頭のCPUに乗る。速さはキャリブレーションの1CPU値
+        "omp_places": ("id", "fast_first", "slow_first"),
     }
+    MIN_GROUP = 16
+    TUNE_PASSES = 2
 
     def __init__(self, tuner, config, top_k, repeats, seed):
         cpus = tuple(sorted(tuner.topology.cpus))
@@ -376,7 +402,7 @@ class LayoutSearch:
         return replace(self.config, cpus=mask, threads=len(mask), omp_places=None, **changes)
 
     def measure(self, case):
-        result = self.tuner.evaluate(case)
+        result = self.tuner.evaluate(case, cached=True)
         self.measured[case] = result
         return result
 
@@ -385,6 +411,8 @@ class LayoutSearch:
 
     def prepare(self, calibrated):
         self.domains = [(c.id, domain) for c in calibrated.classes for domain in c.domains]
+        self.single_ms = {cpu: mean for domain in calibrated.domains
+                          for cpu, mean in zip(domain.cpus, calibrated.profiles[domain.id].per_cpu_means)}
 
     def key(self, mask):
         """同じDomainClass内でのDomainの入れ替え、同じ大きさのコアの入れ替えを同一視する。"""
@@ -412,7 +440,7 @@ class LayoutSearch:
             best = min(stage, key=stage.get)
 
     def runtime_options(self):
-        """試す補助設定。入力configの値も候補に入れる。group_sizeはtwo_stage_argmax時だけ、dimを割り切る値に絞る。"""
+        """試す補助設定。入力configの値も候補に入れる(omp_placesは配置ごとに作るので除く)。"""
         options = {}
         for name, values in self.RUNTIME_OPTIONS.items():
             if name == "group_size":
@@ -420,22 +448,33 @@ class LayoutSearch:
                     continue
                 with self.tuner.runner.model_path.open("rb") as model:
                     dim, = struct.unpack("i", model.read(4))
-                values = [g for g in values if dim % g == 0]
-            options[name] = tuple(dict.fromkeys((getattr(self.input, name), *values)))
+                values = [g for g in range(self.MIN_GROUP, dim + 1) if dim % g == 0]
+            if name != "omp_places":
+                values = (getattr(self.input, name), *values)
+            options[name] = tuple(dict.fromkeys(values))
         return options
 
+    def places(self, mask, order):
+        ordered = sorted(mask, key=self.single_ms.get, reverse=order == "slow_first")
+        if order == "id" or ordered == sorted(mask):
+            return None  # BenchmarkRunnerがCPU番号順に並べる
+        return ",".join(f"{{{cpu}}}" for cpu in ordered)
+
     def tune_runtime(self):
-        """CPU探索の上位top_k配置それぞれで、補助設定を1つずつ最良値に固定していく(座標降下)。"""
+        """CPU探索の上位top_k配置それぞれで、補助設定を1項目ずつ最良値に固定していく(座標降下)。"""
         options = self.runtime_options()
         for mask in sorted(self.layouts, key=self.layouts.get)[:self.top_k]:
             best = self.make(mask)
-            for name, values in options.items():
-                cases = [replace(best, **{name: value}) for value in values]
-                self.rng.shuffle(cases)
-                for case in cases:
-                    if case not in self.measured:
-                        self.measure(case)
-                best = min(cases, key=lambda case: self.measured[case].ms_per_token)
+            for _ in range(self.TUNE_PASSES):
+                start = best
+                for name, values in options.items():
+                    if name == "omp_places":
+                        values = [self.places(mask, order) for order in values]
+                    cases = list(dict.fromkeys(replace(best, **{name: value}) for value in values))
+                    self.rng.shuffle(cases)
+                    best = min(cases, key=lambda case: self.measure(case).ms_per_token)
+                if best == start:
+                    break
             self.tuned.append(best)
 
     def confirm(self):
@@ -446,6 +485,4 @@ class LayoutSearch:
             self.rng.shuffle(finalists)
             for case in finalists:
                 confirmed[case].append(self.tuner.evaluate(case))
-        results = [replace(rows[-1], tokens_per_second=1000 / statistics.fmean(r.ms_per_token for r in rows))
-                   for rows in confirmed.values()]
-        return sorted(results, key=lambda result: result.ms_per_token)
+        return sorted(map(mean_result, confirmed.values()), key=lambda result: result.ms_per_token)

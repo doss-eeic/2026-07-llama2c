@@ -1,6 +1,7 @@
 """Search contracts without running a performance benchmark."""
 from pathlib import Path
 import struct
+from dataclasses import replace
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -27,6 +28,7 @@ class FakeRunner:
         self.calls.append(config)
         latency = 1 + (config.threads - 9) ** 2 / 100
         latency += 0.02 * (config.omp_schedule == "static")
+        latency += 0.001 * config.cpus[0] * (config.threads == 1)  # 1CPU単独は番号が小さいほど速い
         return BenchmarkResult(config, 1000 / latency, "fake")
 
 
@@ -109,20 +111,33 @@ class AutoTunerTest(unittest.TestCase):
                 best = set(min(before, key=before.get))
                 self.assertTrue(all(len(set(mask) - best) == 1 and best < set(mask) for mask in after))
             calibration = 14 * 3 + 4 * 3
-            exploration = sum(map(len, stages))
+            # 1CPU構成とDomain全体はキャリブレーションの平均を使い、測り直さない
+            calibrated = tuner.last_search["calibrated"]
+            reused = [mask for stage in stages for mask in stage
+                      if replace(calls[1], cpus=mask, threads=len(mask)) in calibrated.results]
+            self.assertTrue(set(stages[0]) <= set(reused))
+            exploration = sum(map(len, stages)) - len(reused)
             grown = calls[1 + calibration:1 + calibration + exploration]
+            self.assertTrue(all(c.threads > 1 for c in grown))
             self.assertEqual([c.threads for c in grown], sorted(c.threads for c in grown))
+            self.assertEqual(stages[0], {m: calibrated.results[replace(calls[1], cpus=m, threads=1)].ms_per_token
+                                         for m in stages[0]})
             final = tuner.last_search["confirmed"]
             self.assertIn(tuner.last_search["baseline"], [r.config for r in final])
-            self.assertEqual(len(calls), 1 + calibration + tuner.last_search["exploration"] + 3 * len(final))
+            self.assertEqual(len(calls), 1 + calibration + tuner.last_search["exploration"] - len(reused)
+                             + 3 * len(final))
+            self.assertEqual(len(set(calls[1 + calibration:-3 * len(final)])),
+                             len(calls) - 1 - calibration - 3 * len(final))
             self.assertEqual(result, min(final, key=lambda r: r.ms_per_token))
             for case in calls:
                 self.assertEqual(case.threads, len(case.cpus))
-                self.assertIsNone(case.omp_places)
+                # omp_placesは入力値を使わず、未指定かそのCPUを並べ替えたものだけ
+                self.assertTrue(case.omp_places is None or sorted(
+                    int(p.strip("{}")) for p in case.omp_places.split(",")) == list(case.cpus))
                 self.assertTrue(case.optimize_weights and case.two_stage_argmax)
             # CPU探索まではOpenMP設定を既定値にする
             default = BenchmarkConfig(cpus=(0,), threads=1)
-            for case in calls[:1 + calibration + sum(map(len, stages))]:
+            for case in calls[:1 + calibration + exploration]:
                 self.assertEqual((case.omp_schedule, case.omp_wait_policy, case.gomp_spincount, case.omp_proc_bind),
                                  (default.omp_schedule, None, None, default.omp_proc_bind))
 
@@ -133,9 +148,16 @@ class AutoTunerTest(unittest.TestCase):
             self.assertEqual({r.config for r in final}, {*tuned, tuner.last_search["baseline"]})
             self.assertTrue(all(c.omp_schedule != "static" for c in tuned))
             tried = {c for c in calls if c.cpus == tuned[0].cpus}
-            for name in ("omp_schedule", "group_size", "omp_wait_policy", "gomp_spincount", "omp_proc_bind"):
+            for name in ("omp_schedule", "group_size", "omp_wait_policy", "gomp_spincount", "omp_proc_bind",
+                         "omp_dynamic", "omp_places"):
                 values = {getattr(c, name) for c in tried}
                 self.assertGreater(len(values), 1, name)
+
+            self.assertEqual({c.group_size for c in tried}, {16, 18, 24, 32, 36, 48, 72, 96, 144, 288})
+            self.assertIn("guided,4", {c.omp_schedule for c in tried})
+            # マスタースレッドを速いCPUに置く順(P→E)と遅いCPUに置く順(E→P)
+            orders = {c.omp_places for c in tried} - {None}
+            self.assertTrue(orders and all(o.startswith("{0}") or o.endswith("{0}") for o in orders))
 
             # calibratedを渡せばキャリブレーションを再測定しない。結果は再現する。
             again, _ = self.kasikoi2(model, calibrated=tuner.last_search["calibrated"])

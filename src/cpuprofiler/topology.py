@@ -1,7 +1,7 @@
 import os
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 
@@ -322,6 +322,8 @@ class CalibratedTopology:
     domains: tuple[Domain, ...]
     profiles: dict[int, DomainProfile]
     classes: tuple[DomainClass, ...]
+    # 測定条件(BenchmarkConfig)→repeats回の平均結果。条件が完全に一致する探索の測定にだけ再利用される
+    results: dict = field(default_factory=dict)
 
     def class_of(self, domain):
         return next(c for c in self.classes if domain in c.domains)
