@@ -1,10 +1,13 @@
 from .benchmark import BenchmarkConfig, BenchmarkRunner
-from .topology import CPUTopology
+from .topology import CPUTopology, CalibratedTopology, DomainClass, DomainProfile, build_domains
 from dataclasses import replace
 from itertools import product
+import math
 import random
+import statistics
 import struct
 import time
+from collections import defaultdict
 
 class AutoTuner:
     def __init__(self, topology: CPUTopology, runner: BenchmarkRunner):
@@ -17,10 +20,14 @@ class AutoTuner:
         self.history.append(result)
         return result
 
-    def _topology_candidates(self, preferred=()):
-        """SMT占有とL2共有を保ち、同じ型の配置を1つにまとめる。"""
-        available = set(self.topology.cpus)
-        clusters, preferred_key, covered = [], [], set()
+    def calibrate(self, config=None, repeats=3, tolerance=0.05, seed=0):
+        return DomainCalibrator(self.topology, self.evaluate, config, repeats, tolerance, seed).calibrate()
+
+    def _domain_kinds(self, calibrated=None):
+        """(型, 物理コア列)の一覧。calibratedがあれば実測で検証したDomainClass.idを型にする。"""
+        if calibrated is not None:
+            return [(("class", c.id), domain.cores) for c in calibrated.classes for domain in c.domains]
+        available, kinds, covered = set(self.topology.cpus), [], set()
         for group in self.topology.l2_groups + self.topology.physical_cores:
             cpus = (set(group) & available) - covered
             if not cpus:
@@ -28,7 +35,15 @@ class AutoTuner:
             covered.update(cpus)
             cores = [tuple(sorted(cpus & set(core))) for core in self.topology.physical_cores]
             cores = [core for core in cores if core]
-            shape = tuple(sorted(map(len, cores)))
+            kinds.append((tuple(sorted(map(len, cores))), cores))
+        return kinds
+
+    def _topology_candidates(self, preferred=(), calibrated=None):
+        """SMT占有とL2共有を保ち、同じ型の配置を1つにまとめる。"""
+        available = set(self.topology.cpus)
+        clusters, preferred_key, sizes = [], [], defaultdict(int)
+        for shape, cores in self._domain_kinds(calibrated):
+            sizes[shape] += sum(map(len, cores))
             preferred_key.append((shape, tuple(sorted((len(core), len(set(core) & set(preferred)))
                                                      for core in cores))))
             options = {}
@@ -38,7 +53,7 @@ class AutoTuner:
                 options.setdefault(key, mask)
             clusters.append((shape, options))
         kinds = sorted({shape for shape, _ in clusters})
-        capacities = [sum(sum(shape) for shape, _ in clusters if shape == kind) for kind in kinds]
+        capacities = [sizes[kind] for kind in kinds]
         preferred_key = tuple(sorted(preferred_key))
         representatives = {}
         for choices in product(*(options.items() for _, options in clusters)):
@@ -52,11 +67,13 @@ class AutoTuner:
                 representatives[key] = (cpus, (*counts, len(cpus) / len(available)))
         return dict(representatives.values())
 
-    def kasikoi_serch(self, config=None, budget=56, top_k=3, repeats=3, seed=42):
+    def kasikoi_serch(self, config=None, budget=56, top_k=3, repeats=3, seed=42, calibrated=None):
         """人数全域→近傍探索→schedule/g調整→独立確認。最良の平均結果を返す。
 
         budgetは探索測定数。別途warmup1回と上位＋基準構成をrepeats回ずつ測る。
         configの最適化・モデル入力設定を維持し、層内と出力を同人数にする。
+        calibratedを渡すと、shapeではなく実測で同型と判定したDomainだけを対称に扱う。
+        キャリブレーションの測定はbudgetに含めない。
         """
         started, history_start = time.perf_counter(), len(self.history)
         cpus = tuple(sorted(self.topology.cpus))
@@ -65,7 +82,7 @@ class AutoTuner:
         config = config or BenchmarkConfig(cpus=cpus, threads=len(cpus))
         if not config.cpus or not set(config.cpus) <= set(cpus):
             raise ValueError("config.cpus must be available CPUs")
-        candidates = self._topology_candidates(config.cpus)
+        candidates = self._topology_candidates(config.cpus, calibrated)
         rng, measured, layouts = random.Random(seed), {}, {}
 
         def make(mask):
@@ -138,6 +155,28 @@ class AutoTuner:
                             "exploration": len(measured), "baseline": baseline, "confirmed": results}
         return results[0]
 
+    def kasikoi2_serch(self, config=None, top_k=3, repeats=3, seed=42,
+                       calibrated=None, calibration_repeats=3, tolerance=0.05):
+        """1スレッドから最良配置に1CPUずつ足していくgreedy探索。
+
+        warmup → キャリブレーション(calibratedが無いとき) → CPU探索 → schedule/g調整 → 独立確認。
+        追加後の配置はDomainClassで正規化し、同型の配置は1回だけ測る。
+        """
+        started, history_start = time.perf_counter(), len(self.history)
+        search = LayoutSearch(self, config, top_k, repeats, seed)
+        search.warmup()
+        if calibrated is None:
+            calibrated = self.calibrate(search.config, calibration_repeats, tolerance, seed)
+        search.prepare(calibrated)
+        search.grow()
+        search.tune_runtime()
+        results = search.confirm()
+        self.last_search = {"seconds": time.perf_counter() - started,
+                            "measurements": len(self.history) - history_start,
+                            "exploration": len(search.measured), "baseline": search.baseline,
+                            "confirmed": results, "calibrated": calibrated, "stages": search.stages}
+        return results[0]
+
     def search(self, args="Sample"):
         candidates = self.generate_fixed_candidates(args)
 
@@ -208,3 +247,179 @@ class AutoTuner:
         results.extend(deeper_results)
 
         return results
+
+
+class DomainCalibrator:
+    """構造(shape)が同じDomainを実測し、性能も揃うものだけを同型クラスにまとめる。
+
+    1. 各論理CPUを1スレッドで測る(repeats巡、巡ごとに順序をシャッフル)。
+    2. 同じshapeのDomainが複数ある場合だけ、Domain全体も全CPUで測る。
+    3. 同じshapeの中で、単一CPU性能(ソートしたCPU別平均)と全体性能の差が
+       すべてのペアでtolerance以内のものを1クラスにする(完全連結なので推移性の問題を避ける)。
+       ばらつきがtoleranceを超えるDomainは同型と言えないので単独クラスに残す。
+    """
+
+    def __init__(self, topology, benchmark, config=None, repeats=3, tolerance=0.05, seed=0):
+        if repeats < 1 or tolerance <= 0:
+            raise ValueError("repeats and tolerance must be positive")
+        self.topology, self.benchmark = topology, benchmark
+        cpus = tuple(sorted(topology.cpus))
+        self.config = config or BenchmarkConfig(cpus=cpus, threads=len(cpus))
+        self.repeats, self.tolerance, self.rng = repeats, tolerance, random.Random(seed)
+
+    def calibrate(self):
+        domains = build_domains(self.topology)
+        by_shape = defaultdict(list)
+        for domain in domains:
+            by_shape[domain.shape].append(domain)
+        single = self._measure([(cpu,) for domain in domains for cpu in domain.cpus])
+        full = self._measure([domain.cpus for group in by_shape.values() if len(group) > 1
+                              for domain in group])
+        profiles = {domain.id: self._profile(domain, single, full) for domain in domains}
+        groups = [group for _, members in sorted(by_shape.items())
+                  for group in self._classify(members, profiles)]
+        groups.sort(key=lambda group: min(domain.id for domain in group))
+        classes = tuple(DomainClass(i, tuple(sorted(group, key=lambda d: d.id)))
+                        for i, group in enumerate(groups))
+        return CalibratedTopology(self.topology, domains, profiles, classes)
+
+    def _measure(self, cases):
+        samples = {cpus: [] for cpus in cases}
+        for _ in range(self.repeats):
+            order = list(samples)
+            self.rng.shuffle(order)  # ターボや温度の時系列バイアスをCPU番号に乗せない
+            for cpus in order:
+                case = replace(self.config, cpus=cpus, threads=len(cpus), omp_places=None)
+                samples[cpus].append(self.benchmark(case).ms_per_token)
+        return samples
+
+    @staticmethod
+    def _std(values):
+        return statistics.stdev(values) if len(values) > 1 else 0.0
+
+    def _profile(self, domain, single, full):
+        runs = [single[(cpu,)] for cpu in domain.cpus]
+        per_cpu = tuple(statistics.fmean(r) for r in runs)
+        whole = full.get(domain.cpus)
+        return DomainProfile(
+            domain_id=domain.id,
+            single_mean=statistics.fmean(per_cpu),
+            single_std=math.sqrt(statistics.fmean(self._std(r) ** 2 for r in runs)),
+            per_cpu_means=per_cpu,
+            full_mean=None if whole is None else statistics.fmean(whole),
+            full_std=None if whole is None else self._std(whole),
+        )
+
+    def _noisy(self, p):
+        return (p.single_std / p.single_mean > self.tolerance
+                or p.full_mean is not None and p.full_std / p.full_mean > self.tolerance)
+
+    def _similar(self, a, b):
+        def close(x, y):
+            return abs(math.log(x / y)) <= self.tolerance
+        if self._noisy(a) or self._noisy(b):
+            return False
+        if not all(close(x, y) for x, y in zip(sorted(a.per_cpu_means), sorted(b.per_cpu_means))):
+            return False
+        return a.full_mean is None or b.full_mean is None or close(a.full_mean, b.full_mean)
+
+    def _classify(self, domains, profiles):
+        groups = []
+        for domain in sorted(domains, key=lambda d: profiles[d.id].single_mean):
+            for group in groups:
+                if all(self._similar(profiles[domain.id], profiles[other.id]) for other in group):
+                    group.append(domain)
+                    break
+            else:
+                groups.append([domain])
+        return groups
+
+
+class LayoutSearch:
+    """kasikoi2_serchの状態と各段階。
+
+    measuredは探索中の測定(BenchmarkConfig→結果)、layoutsはCPU配置→ms/token、
+    stagesはスレッド数ごとの(測定した配置→ms/token)。
+    """
+
+    def __init__(self, tuner, config, top_k, repeats, seed):
+        cpus = tuple(sorted(tuner.topology.cpus))
+        if not cpus or top_k < 1 or repeats < 1:
+            raise ValueError("top_k and repeats must be positive")
+        config = config or BenchmarkConfig(cpus=cpus, threads=len(cpus))
+        if not config.cpus or not set(config.cpus) <= set(cpus):
+            raise ValueError("config.cpus must be available CPUs")
+        self.tuner, self.cpus, self.config = tuner, cpus, config
+        self.top_k, self.repeats = top_k, repeats
+        self.rng, self.measured, self.layouts, self.stages = random.Random(seed), {}, {}, []
+        self.baseline = self.make(tuple(sorted(config.cpus)))
+
+    def make(self, mask, **changes):
+        return replace(self.config, cpus=mask, threads=len(mask), omp_places=None, **changes)
+
+    def measure(self, case):
+        result = self.tuner.evaluate(case)
+        self.measured[case] = result
+        return result
+
+    def warmup(self):
+        self.tuner.evaluate(self.make(tuple(self.config.cpus)))  # 順位に使わない
+
+    def prepare(self, calibrated):
+        self.domains = [(c.id, domain) for c in calibrated.classes for domain in c.domains]
+
+    def key(self, mask):
+        """同じDomainClass内でのDomainの入れ替え、同じ大きさのコアの入れ替えを同一視する。"""
+        used = set(mask)
+        return tuple(sorted(
+            (class_id, tuple(sorted((len(core), len(used & set(core))) for core in domain.cores)))
+            for class_id, domain in self.domains))
+
+    def children(self, parent):
+        """parentに1CPU足した配置。同型は1つにまとめる。"""
+        found = {}
+        for cpu in self.cpus:
+            if cpu not in parent:
+                mask = tuple(sorted(parent + (cpu,)))
+                found.setdefault(self.key(mask), mask)
+        return list(found.values())
+
+    def grow(self):
+        best = ()
+        for _ in self.cpus:
+            stage = {}
+            for mask in self.children(best):
+                stage[mask] = self.layouts[mask] = self.measure(self.make(mask)).ms_per_token
+            self.stages.append(stage)
+            best = min(stage, key=stage.get)
+
+    def tune_runtime(self):
+        """全スレッド数を通した上位配置でOpenMP scheduleとgroup sizeを試す。"""
+        config, groups = self.config, [self.config.group_size]
+        if config.two_stage_argmax:
+            with self.tuner.runner.model_path.open("rb") as model:
+                dim, = struct.unpack("i", model.read(4))
+            groups += [g for g in (96, 144, 288) if dim % g == 0]
+        schedules = dict.fromkeys((config.omp_schedule, "static", "dynamic,16", "dynamic,64"))
+        tuning = [self.make(mask, omp_schedule=schedule, group_size=g)
+                  for mask in sorted(self.layouts, key=self.layouts.get)[:self.top_k]
+                  for schedule in schedules
+                  for g in dict.fromkeys(groups)]
+        self.rng.shuffle(tuning)
+        for case in tuning:
+            if case not in self.measured:
+                self.measure(case)
+
+    def confirm(self):
+        """上位top_kと基準構成を、巡ごとに順序を変えてrepeats回測り直し、平均で順位を付ける。"""
+        finalists = sorted(self.measured, key=lambda case: self.measured[case].ms_per_token)[:self.top_k]
+        if self.baseline not in finalists:
+            finalists.append(self.baseline)
+        confirmed = {case: [] for case in finalists}
+        for _ in range(self.repeats):
+            self.rng.shuffle(finalists)
+            for case in finalists:
+                confirmed[case].append(self.tuner.evaluate(case))
+        results = [replace(rows[-1], tokens_per_second=1000 / statistics.fmean(r.ms_per_token for r in rows))
+                   for rows in confirmed.values()]
+        return sorted(results, key=lambda result: result.ms_per_token)
