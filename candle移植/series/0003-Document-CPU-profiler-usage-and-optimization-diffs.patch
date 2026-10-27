@@ -1,0 +1,272 @@
+From 6bb399638c8212a4b7d5bbe8dc888de3971dfc2a Mon Sep 17 00:00:00 2001
+From: WatNeru <5904watanao@gmail.com>
+Date: Tue, 27 Oct 2026 15:14:06 +0900
+Subject: [PATCH 3/7] Document CPU profiler usage and optimization diffs
+
+---
+ README.md | 252 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 252 insertions(+)
+
+diff --git a/README.md b/README.md
+index 9f9e09d3..7a16a544 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,255 @@
++# CPU-Profiler / argmax-opt
++
++## CPU 最適化の使い方
++
++Linux で `cargo`、`uv`、`taskset` を使います。モデル (`stories15M.bin` など) と対応する `tokenizer.json` を用意し、リポジトリのルートで実行します。
++
++```bash
++cargo build --release --example llama2-c
++cd benchmarks/cpuprofiler
++uv run --locked cpuprofiler \
++  --model /path/to/stories15M.bin \
++  --tokenizer /path/to/tokenizer.json
++```
++
++`cpuprofiler` は利用可能な CPU の組み合わせとスレッド数を測り、最速の設定、生成速度 (token/s)、探索時間を表示します。実行時オプションの探索はなく、測定中は Int8 の two-stage argmax を使います。主な指定は次のとおりです。
++
++| オプション | 内容 | デフォルト |
++| --- | --- | --- |
++| `--group-size N` | Int8 の量子化グループサイズ。モデルの次元を割り切る値を指定 | `32` |
++| `--no-int8` | two-stage argmax を無効にして比較 | 指定なし (Int8 有効) |
++| `--top-k N` | 詳しく測る候補数 | `3` |
++| `--repeats N` | 候補ごとの測定回数 | `3` |
++| `--calibration-repeats N` | CPU 特性の測定回数 | `3` |
++| `--binary PATH` | 測定する実行ファイル | `target/release/examples/llama2-c` |
++
++`--help` で全オプションを確認できます。Int8 の比較では `--group-size` を変えて個別に実行してください。通常の推論だけを実行する場合は、次のように指定します。
++
++```bash
++./target/release/examples/llama2-c --cpu \
++  --tokenizer /path/to/tokenizer.json --repeat-penalty 1 \
++  inference --config /path/to/stories15M.bin --temperature 0 \
++  --two-stage-argmax --group-size 32
++```
++
++`--two-stage-argmax` を外すと通常の argmax を使用します。このオプションは非 GGUF モデルで、貪欲生成 (`--temperature 0`) と `--repeat-penalty 1` のときに使用できます。
++
++# 変更箇所
++
++以下は `12bb5d1f` から `perf/opt` への実際の差分です（周辺行は省略）。
++
++## Cache
++
++```diff
++diff --git a/candle-core/src/utils.rs b/candle-core/src/utils.rs
++index 324e623b..7a8e69f8 100644
++--- a/candle-core/src/utils.rs
+++++ b/candle-core/src/utils.rs
++@@ -404,5 +404,9 @@ fn rayon_num_threads() -> usize {
++-    std::env::var("RAYON_NUM_THREADS")
++-        .ok()
++-        .and_then(|s| usize::from_str(&s).ok())
++-        .filter(|nt| nt > &0)
++-        .unwrap_or_else(default_num_threads)
+++    // Called once per matmul, while default_num_threads may read /proc or /sys.
+++    static NUM_THREADS: OnceLock<usize> = OnceLock::new();
+++    *NUM_THREADS.get_or_init(|| {
+++        std::env::var("RAYON_NUM_THREADS")
+++            .ok()
+++            .and_then(|s| usize::from_str(&s).ok())
+++            .filter(|nt| nt > &0)
+++            .unwrap_or_else(default_num_threads)
+++    })
++```
++
++## argmax
++
++```diff
++diff --git a/candle-examples/examples/llama2-c/classifier.rs b/candle-examples/examples/llama2-c/classifier.rs
++new file mode 100644
++index 00000000..74b05c26
++--- /dev/null
+++++ b/candle-examples/examples/llama2-c/classifier.rs
++@@ -0,0 +1,103 @@
+++//! Two-stage greedy argmax over the output projection, ported from the llama2.c fork
+++//! (2026-07-llama2c `src/classifier.h`).
+++//!
+++//! Every row is first scored with group-wise int8 weights together with an error bound.
+++//! Only the rows whose upper bound reaches the best lower bound are recomputed in f32, and
+++//! the argmax is taken over those. This keeps the greedy choice of the f32 output layer
+++//! without computing all the f32 logits.
+++use anyhow::{bail, Result};
+++use candle::Tensor;
+++use rayon::prelude::*;
+++
+++pub struct Int8Classifier {
+++    w: Vec<f32>,
+++    q: Vec<i8>,
+++    s: Vec<f32>,
+++    dim: usize,
+++    gs: usize,
+++}
+++
+++const ROWS_PER_TASK: usize = 64;
+++
+++impl Int8Classifier {
+++    /// `w` is the (vocab_size, dim) output weight, `gs` the quantization group size.
+++    pub fn new(w: &Tensor, gs: usize) -> Result<Self> {
+++        let (vocab, dim) = w.dims2()?;
+++        if gs == 0 || dim % gs != 0 {
+++            bail!("group size {gs} must divide the model dim {dim}")
+++        }
+++        let w = w.flatten_all()?.to_vec1::<f32>()?;
+++        let ng = dim / gs;
+++        let mut q = vec![0i8; vocab * dim];
+++        let mut s = vec![0f32; vocab * ng];
+++        q.par_chunks_mut(dim)
+++            .zip(s.par_chunks_mut(ng))
+++            .zip(w.par_chunks(dim))
+++            .for_each(|((q, s), w)| {
+++                for g in 0..ng {
+++                    let w = &w[g * gs..(g + 1) * gs];
+++                    let wmax = w.iter().fold(0f32, |m, v| m.max(v.abs()));
+++                    let scale = wmax / 127.0;
+++                    s[g] = scale;
+++                    for (q, w) in q[g * gs..(g + 1) * gs].iter_mut().zip(w) {
+++                        *q = if scale > 0.0 {
+++                            (w / scale).round() as i8
+++                        } else {
+++                            0
+++                        };
+++                    }
+++                }
+++            });
+++        Ok(Self { w, q, s, dim, gs })
+++    }
+++
+++    /// Returns the index of the largest f32 logit for the hidden state `x` (length dim).
+++    pub fn argmax(&self, x: &[f32]) -> u32 {
+++        let (dim, gs) = (self.dim, self.gs);
+++        let ng = dim / gs;
+++        let a: Vec<f32> = x
+++            .chunks(gs)
+++            .map(|x| x.iter().map(|v| v.abs()).sum())
+++            .collect();
+++        // (upper bound, lower bound) of every row.
+++        let bounds: Vec<(f32, f32)> = candle::utils::with_threadpool(|| {
+++            self.q
+++                .par_chunks(dim * ROWS_PER_TASK)
+++                .zip(self.s.par_chunks(ng * ROWS_PER_TASK))
+++                .flat_map_iter(|(q, s)| {
+++                    q.chunks(dim).zip(s.chunks(ng)).map(|(q, s)| {
+++                        let mut approx = 0f32;
+++                        let mut bound = 0f32;
+++                        for g in 0..ng {
+++                            let mut dot = 0f32;
+++                            for (q, x) in q[g * gs..(g + 1) * gs].iter().zip(&x[g * gs..]) {
+++                                dot += *q as f32 * x;
+++                            }
+++                            approx += dot * s[g];
+++                            bound += s[g] * a[g];
+++                        }
+++                        // Same rounding margin as the C implementation.
+++                        let err = 0.51 * bound + 1e-6;
+++                        (approx + err, approx - err)
+++                    })
+++                })
+++                .collect()
+++        });
+++        let lo = bounds.iter().fold(f32::MIN, |m, b| m.max(b.1));
+++        let mut best = (0u32, f32::MIN);
+++        for (i, b) in bounds.iter().enumerate() {
+++            if b.0 < lo {
+++                continue;
+++            }
+++            let w = &self.w[i * dim..(i + 1) * dim];
+++            let mut v = 0f32;
+++            for (w, x) in w.iter().zip(x) {
+++                v += w * x;
+++            }
+++            if v > best.1 {
+++                best = (i as u32, v);
+++            }
+++        }
+++        best.0
+++    }
+++}
++diff --git a/candle-examples/examples/llama2-c/main.rs b/candle-examples/examples/llama2-c/main.rs
++index e3953cb4..386b9ed4 100644
++--- a/candle-examples/examples/llama2-c/main.rs
+++++ b/candle-examples/examples/llama2-c/main.rs
++@@ -11,0 +12 @@ use candle_transformers::models::quantized_llama2_c as qmodel;
+++mod classifier;
++@@ -50,0 +52,9 @@ struct InferenceCmd {
+++
+++    /// Greedy sampling only: screen the output rows with int8 weights and recompute the
+++    /// candidates in f32.
+++    #[arg(long)]
+++    two_stage_argmax: bool,
+++
+++    /// Quantization group size for --two-stage-argmax, must divide the model dim.
+++    #[arg(long, default_value_t = 32)]
+++    group_size: usize,
++@@ -146,0 +157,2 @@ fn main() -> anyhow::Result<()> {
+++                two_stage_argmax: false,
+++                group_size: 32,
++@@ -326,0 +339,14 @@ fn run_inference(args: &InferenceCmd, common_args: &Args) -> Result<()> {
+++    let classifier = if args.two_stage_argmax {
+++        let greedy = args.temperature.map_or(true, |t| t <= 0.0);
+++        match &model {
+++            Model::Llama(l) if greedy && common_args.repeat_penalty == 1. => Some(
+++                classifier::Int8Classifier::new(l.lm_head_weight(), args.group_size)?,
+++            ),
+++            _ => anyhow::bail!(
+++                "--two-stage-argmax needs a non-gguf model, --temperature 0 and --repeat-penalty 1"
+++            ),
+++        }
+++    } else {
+++        None
+++    };
+++
++@@ -346,0 +373,12 @@ fn run_inference(args: &InferenceCmd, common_args: &Args) -> Result<()> {
+++        if let (Some(classifier), Model::Llama(l)) = (&classifier, &model) {
+++            let x = l.forward_hidden(&input, index_pos, &mut cache)?;
+++            let x = x.i((0, x.dim(1)? - 1))?.to_vec1::<f32>()?;
+++            index_pos += ctxt.len();
+++            let next_token = classifier.argmax(&x);
+++            tokens.push(next_token);
+++            if let Some(t) = tokenizer.next_token(next_token)? {
+++                print!("{t}");
+++                std::io::stdout().flush()?;
+++            }
+++            continue;
+++        }
++diff --git a/candle-transformers/src/models/llama2_c.rs b/candle-transformers/src/models/llama2_c.rs
++index 887f1d7d..8c590a1c 100644
++--- a/candle-transformers/src/models/llama2_c.rs
+++++ b/candle-transformers/src/models/llama2_c.rs
++@@ -347,0 +348,12 @@ impl Llama {
+++        let x = self.forward_hidden(x, index_pos, cache)?;
+++        let logits = self.lm_head.forward(&x)?;
+++        logits.to_dtype(DType::F32)
+++    }
+++
+++    /// Runs the model up to the final norm, i.e. the input of the output projection.
+++    pub fn forward_hidden(
+++        &self,
+++        x: &Tensor,
+++        index_pos: usize,
+++        cache: &mut Cache,
+++    ) -> Result<Tensor> {
++@@ -353,3 +365,6 @@ impl Llama {
++-        let x = self.ln_f.forward(&x)?;
++-        let logits = self.lm_head.forward(&x)?;
++-        logits.to_dtype(DType::F32)
+++        self.ln_f.forward(&x)
+++    }
+++
+++    /// The output projection weight, of shape (vocab_size, dim).
+++    pub fn lm_head_weight(&self) -> &Tensor {
+++        self.lm_head.weight()
++```
++
+ # candle
+ [![discord server](https://dcbadge.limes.pink/api/server/hugging-face-879548962464493619)](https://discord.gg/hugging-face-879548962464493619)
+ [![Latest version](https://img.shields.io/crates/v/candle-core.svg)](https://crates.io/crates/candle-core)
+-- 
+2.43.0
+

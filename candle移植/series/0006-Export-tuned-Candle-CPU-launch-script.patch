@@ -1,0 +1,158 @@
+From bdde8a17b2b1d0859914a379b8b198f3c0b7fa9b Mon Sep 17 00:00:00 2001
+From: WatNeru <5904watanao@gmail.com>
+Date: Tue, 27 Oct 2026 15:25:33 +0900
+Subject: [PATCH 6/7] Export tuned Candle CPU launch script
+
+---
+ README.md                                     | 14 ++++++++---
+ .../cpuprofiler/src/cpuprofiler/__init__.py   |  6 +++++
+ .../cpuprofiler/src/cpuprofiler/benchmark.py  | 25 ++++++++++++-------
+ .../cpuprofiler/src/cpuprofiler/export.py     | 23 +++++++++++++++++
+ 4 files changed, 56 insertions(+), 12 deletions(-)
+ create mode 100644 benchmarks/cpuprofiler/src/cpuprofiler/export.py
+
+diff --git a/README.md b/README.md
+index 27ad571d..26087593 100644
+--- a/README.md
++++ b/README.md
+@@ -4,7 +4,7 @@
+ 
+ Linux で `cargo`、`uv`、`taskset`、`curl` を使います。以下のコマンドはすべて clone したリポジトリのルートから実行します。
+ 
+-### 初回のみ: モデルと tokenizer の配置・ビルド
++### モデルと tokenizer の配置・ビルド
+ 
+ モデルと tokenizer は git 管理外の `data/` に保存します。ソースを更新した場合は `cargo build` を再実行してください。
+ 
+@@ -17,7 +17,7 @@ curl -fL --retry 3 -o data/tokenizer.json \
+ cargo build --release --example llama2-c
+ ```
+ 
+-### 実行: 2 回目以降はこれだけ
++### 実行
+ 
+ ```bash
+ uv run --project benchmarks/cpuprofiler --locked cpuprofiler \
+@@ -25,7 +25,14 @@ uv run --project benchmarks/cpuprofiler --locked cpuprofiler \
+   --tokenizer data/tokenizer.json
+ ```
+ 
+-`cpuprofiler` は利用可能な CPU の組み合わせとスレッド数を測り、最速の設定、生成速度 (token/s)、探索時間を表示します。実行時オプションの探索はなく、測定中は Int8 の two-stage argmax を使います。主な指定は次のとおりです。
++`cpuprofiler` は利用可能な CPU の組み合わせとスレッド数を測り、最速の設定、生成速度 (token/s)、探索時間を表示します。実行時オプションの探索はなく、測定中は Int8 の two-stage argmax を使います。探索後は最速の設定を `target/release/examples/run-tuned.sh` に保存します。以後は探索せずに次のコマンドで推論できます。
++
++```bash
++./target/release/examples/run-tuned.sh
++./target/release/examples/run-tuned.sh --prompt "Hello"
++```
++
++主な指定は次のとおりです。
+ 
+ | オプション | 内容 | デフォルト |
+ | --- | --- | --- |
+@@ -35,6 +42,7 @@ uv run --project benchmarks/cpuprofiler --locked cpuprofiler \
+ | `--repeats N` | 候補ごとの測定回数 | `3` |
+ | `--calibration-repeats N` | CPU 特性の測定回数 | `3` |
+ | `--binary PATH` | 測定する実行ファイル | `target/release/examples/llama2-c` |
++| `--output PATH` | 最速の設定を保存するシェルスクリプト | `target/release/examples/run-tuned.sh` |
+ 
+ `--help` で全オプションを確認できます。Int8 の比較では `--group-size` を変えて個別に実行してください。通常の推論だけを実行する場合は、リポジトリのルートから次のように指定します。
+ 
+diff --git a/benchmarks/cpuprofiler/src/cpuprofiler/__init__.py b/benchmarks/cpuprofiler/src/cpuprofiler/__init__.py
+index 455cbb84..8fe011ec 100644
+--- a/benchmarks/cpuprofiler/src/cpuprofiler/__init__.py
++++ b/benchmarks/cpuprofiler/src/cpuprofiler/__init__.py
+@@ -3,6 +3,7 @@
+ from .autotuner import AutoTuner
+ from .benchmark import BenchmarkRunner
+ from .benchmarkconfig import BenchmarkConfig
++from .export import export_tuned
+ from .topology import CPUTopology
+ from pathlib import Path
+ 
+@@ -22,6 +23,9 @@ def main(argv=None):
+     parser.add_argument("--tolerance", type=float, default=0.05)
+     parser.add_argument("--seed", type=int, default=42)
+     parser.add_argument("--timeout", type=float, default=BenchmarkConfig.timeout)
++    parser.add_argument("--output", type=Path,
++                        default=BenchmarkConfig.binary.with_name("run-tuned.sh"),
++                        help="shell script output with the best configuration")
+     args = parser.parse_args(argv)
+ 
+     topology = CPUTopology()
+@@ -40,3 +44,5 @@ def main(argv=None):
+     print(f"Best performance: {result.tokens_per_second:.2f} token/s")
+     print(f"Search: {tuner.last_search['seconds']:.2f} s, "
+           f"{tuner.last_search['measurements']} measurements")
++    output = export_tuned(result, args.output)
++    print(f"Saved tuned shell script: {output}")
+diff --git a/benchmarks/cpuprofiler/src/cpuprofiler/benchmark.py b/benchmarks/cpuprofiler/src/cpuprofiler/benchmark.py
+index 135674cc..11943f16 100644
+--- a/benchmarks/cpuprofiler/src/cpuprofiler/benchmark.py
++++ b/benchmarks/cpuprofiler/src/cpuprofiler/benchmark.py
+@@ -20,18 +20,25 @@ class BenchmarkResult:
+         return 1000 / self.tokens_per_second
+ 
+ 
++def execution(config: BenchmarkConfig, *, include_prompt=True):
++    mask = ",".join(map(str, config.cpus))
++    command = ["taskset", "-c", mask, str(config.binary), "--cpu",
++               "--tokenizer", str(config.tokenizer), "--repeat-penalty", "1",
++               "inference", "--config", str(config.model), "--temperature", "0"]
++    if config.two_stage_argmax:
++        command += ["--two-stage-argmax", "--group-size", str(config.group_size)]
++    if include_prompt:
++        command += ["--prompt", config.prompt]
++    settings = dict(RAYON_NUM_THREADS=str(config.threads),
++                    CANDLE_NUM_THREADS=str(config.threads), CANDLE_CPU_MASK=mask)
++    return command, settings
++
++
+ class BenchmarkRunner:
+     def run(self, config: BenchmarkConfig) -> BenchmarkResult:
+-        mask = ",".join(map(str, config.cpus))
+-        command = ["taskset", "-c", mask, str(config.binary), "--cpu",
+-                   "--tokenizer", str(config.tokenizer), "--repeat-penalty", "1",
+-                   "inference", "--config", str(config.model),
+-                   "--temperature", "0", "--prompt", config.prompt]
+-        if config.two_stage_argmax:
+-            command += ["--two-stage-argmax", "--group-size", str(config.group_size)]
++        command, settings = execution(config)
+         env = os.environ.copy()
+-        env.update(RAYON_NUM_THREADS=str(config.threads),
+-                   CANDLE_NUM_THREADS=str(config.threads), CANDLE_CPU_MASK=mask)
++        env.update(settings)
+         result = subprocess.run(command, env=env, capture_output=True, text=True,
+                                 check=True, timeout=config.timeout)
+         match = RATE_RE.search(result.stdout)
+diff --git a/benchmarks/cpuprofiler/src/cpuprofiler/export.py b/benchmarks/cpuprofiler/src/cpuprofiler/export.py
+new file mode 100644
+index 00000000..a7d258f9
+--- /dev/null
++++ b/benchmarks/cpuprofiler/src/cpuprofiler/export.py
+@@ -0,0 +1,23 @@
++"""Write the fastest measured Candle configuration as a shell script."""
++
++from pathlib import Path
++import shlex
++
++from .benchmark import BenchmarkResult, execution
++
++
++def export_tuned(result: BenchmarkResult, output: Path) -> Path:
++    config = result.config
++    output = output.resolve()
++    if output in (config.binary, config.model, config.tokenizer):
++        raise ValueError("output must not overwrite the binary, model or tokenizer")
++    command, settings = execution(config, include_prompt=False)
++    lines = ["#!/usr/bin/env bash", "set -eu", ""]
++    lines += [f"export {name}={shlex.quote(value)}" for name, value in settings.items()]
++    lines += ["", 'if [ "$#" -eq 0 ]; then',
++              f"    set -- --prompt {shlex.quote(config.prompt)}", "fi",
++              "", "exec " + shlex.join(command) + ' "$@"', ""]
++    output.parent.mkdir(parents=True, exist_ok=True)
++    output.write_text("\n".join(lines))
++    output.chmod(0o755)
++    return output
+-- 
+2.43.0
+

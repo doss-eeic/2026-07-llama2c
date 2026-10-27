@@ -1,0 +1,59 @@
+From afe07bee641ed3875ec52d3b0375852dbaf34902 Mon Sep 17 00:00:00 2001
+From: WatNeru <5904watanao@gmail.com>
+Date: Tue, 27 Oct 2026 15:34:11 +0900
+Subject: [PATCH 7/7] Document upstream CPU profiling comparison
+
+---
+ README.md | 22 ++++++++++++++++++++--
+ 1 file changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/README.md b/README.md
+index 26087593..a7f9f522 100644
+--- a/README.md
++++ b/README.md
+@@ -14,7 +14,7 @@ curl -fL --retry 3 -o data/stories15M.bin \
+   https://huggingface.co/karpathy/tinyllamas/resolve/main/stories15M.bin
+ curl -fL --retry 3 -o data/tokenizer.json \
+   https://huggingface.co/hf-internal-testing/llama-tokenizer/resolve/main/tokenizer.json
+-cargo build --release --example llama2-c
++cargo build --release --example llama2-c --features candle-datasets
+ ```
+ 
+ ### 実行
+@@ -29,7 +29,7 @@ uv run --project benchmarks/cpuprofiler --locked cpuprofiler \
+ 
+ ```bash
+ ./target/release/examples/run-tuned.sh
+-./target/release/examples/run-tuned.sh --prompt "Hello"
++./target/release/examples/run-tuned.sh --prompt "Once upon a time"
+ ```
+ 
+ 主な指定は次のとおりです。
+@@ -54,6 +54,24 @@ uv run --project benchmarks/cpuprofiler --locked cpuprofiler \
+ ```
+ 
+ `--two-stage-argmax` を外すと通常の argmax を使用します。このオプションは非 GGUF モデルで、貪欲生成 (`--temperature 0`) と `--repeat-penalty 1` のときに使用できます。
++### upstream との比較
++
++このブランチの比較元である `12bb5d1f` を別の worktree に置き、同じモデルと tokenizer で CPU 配置を探索します。以下はリポジトリのルートから実行します（worktree の作成とビルドは初回のみ）。
++
++```bash
++git worktree add --detach ../candle-upstream 12bb5d1f
++(cd ../candle-upstream && cargo build --release --example llama2-c --features candle-datasets)
++uv run --project benchmarks/cpuprofiler --locked cpuprofiler \
++  --binary ../candle-upstream/target/release/examples/llama2-c \
++  --model data/stories15M.bin \
++  --tokenizer data/tokenizer.json \
++  --no-int8 \
++  --output target/release/examples/run-tuned-upstream.sh
++./target/release/examples/run-tuned-upstream.sh
++```
++
++`--no-int8` は比較元の実装に `--two-stage-argmax` がないため必要です。生成された `run-tuned-upstream.sh` は upstream 側の実行ファイルと、その探索で選ばれた CPU 設定を使います。
++
+ 
+ # 変更箇所
+ 
+-- 
+2.43.0
+

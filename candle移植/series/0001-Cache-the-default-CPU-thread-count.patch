@@ -1,0 +1,42 @@
+From 47745d94080e58069862236337cded66a5e0b1f7 Mon Sep 17 00:00:00 2001
+From: WatNeru <5904watanao@gmail.com>
+Date: Mon, 26 Oct 2026 15:55:54 +0900
+Subject: [PATCH 1/7] Cache the default CPU thread count
+
+get_num_threads() runs on every CPU matmul. Without RAYON_NUM_THREADS it fell back to
+num_cpus::get_physical(), which re-reads /proc or /sys each time. On stories15M
+(llama2-c, CPU) this made generation ~3x slower than with the variable set.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ candle-core/src/utils.rs | 14 +++++++++-----
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/candle-core/src/utils.rs b/candle-core/src/utils.rs
+index 324e623b..7a8e69f8 100644
+--- a/candle-core/src/utils.rs
++++ b/candle-core/src/utils.rs
+@@ -401,11 +401,15 @@ fn default_num_threads() -> usize {
+ }
+ 
+ fn rayon_num_threads() -> usize {
+-    std::env::var("RAYON_NUM_THREADS")
+-        .ok()
+-        .and_then(|s| usize::from_str(&s).ok())
+-        .filter(|nt| nt > &0)
+-        .unwrap_or_else(default_num_threads)
++    // Called once per matmul, while default_num_threads may read /proc or /sys.
++    static NUM_THREADS: OnceLock<usize> = OnceLock::new();
++    *NUM_THREADS.get_or_init(|| {
++        std::env::var("RAYON_NUM_THREADS")
++            .ok()
++            .and_then(|s| usize::from_str(&s).ok())
++            .filter(|nt| nt > &0)
++            .unwrap_or_else(default_num_threads)
++    })
+ }
+ 
+ fn candle_num_threads() -> usize {
+-- 
+2.43.0
+

@@ -1,0 +1,1066 @@
+From d075fd551ab4e962e6ecdd1df37560375af70431 Mon Sep 17 00:00:00 2001
+From: WatNeru <5904watanao@gmail.com>
+Date: Tue, 27 Oct 2026 15:01:48 +0900
+Subject: [PATCH 2/7] Add minimal CPU cache, Int8 argmax, and cpuprofiler
+
+---
+ benchmarks/cpuprofiler/pyproject.toml         |  12 +
+ .../cpuprofiler/src/cpuprofiler/__init__.py   |  42 +++
+ .../cpuprofiler/src/cpuprofiler/__main__.py   |   4 +
+ .../cpuprofiler/src/cpuprofiler/autotuner.py  | 299 +++++++++++++++
+ .../cpuprofiler/src/cpuprofiler/benchmark.py  |  40 +++
+ .../src/cpuprofiler/benchmarkconfig.py        |  20 ++
+ .../cpuprofiler/src/cpuprofiler/topology.py   | 339 ++++++++++++++++++
+ benchmarks/cpuprofiler/uv.lock                |   8 +
+ .../examples/llama2-c/classifier.rs           | 103 ++++++
+ candle-examples/examples/llama2-c/main.rs     |  38 ++
+ candle-transformers/src/models/llama2_c.rs    |  21 +-
+ 11 files changed, 923 insertions(+), 3 deletions(-)
+ create mode 100644 benchmarks/cpuprofiler/pyproject.toml
+ create mode 100644 benchmarks/cpuprofiler/src/cpuprofiler/__init__.py
+ create mode 100644 benchmarks/cpuprofiler/src/cpuprofiler/__main__.py
+ create mode 100644 benchmarks/cpuprofiler/src/cpuprofiler/autotuner.py
+ create mode 100644 benchmarks/cpuprofiler/src/cpuprofiler/benchmark.py
+ create mode 100644 benchmarks/cpuprofiler/src/cpuprofiler/benchmarkconfig.py
+ create mode 100644 benchmarks/cpuprofiler/src/cpuprofiler/topology.py
+ create mode 100644 benchmarks/cpuprofiler/uv.lock
+ create mode 100644 candle-examples/examples/llama2-c/classifier.rs
+
+diff --git a/benchmarks/cpuprofiler/pyproject.toml b/benchmarks/cpuprofiler/pyproject.toml
+new file mode 100644
+index 00000000..5c06a761
+--- /dev/null
++++ b/benchmarks/cpuprofiler/pyproject.toml
+@@ -0,0 +1,12 @@
++[project]
++name = "cpuprofiler"
++version = "0.1.0"
++requires-python = ">=3.10"
++dependencies = []
++
++[project.scripts]
++cpuprofiler = "cpuprofiler:main"
++
++[build-system]
++requires = ["uv_build>=0.12.23,<0.13.0"]
++build-backend = "uv_build"
+diff --git a/benchmarks/cpuprofiler/src/cpuprofiler/__init__.py b/benchmarks/cpuprofiler/src/cpuprofiler/__init__.py
+new file mode 100644
+index 00000000..455cbb84
+--- /dev/null
++++ b/benchmarks/cpuprofiler/src/cpuprofiler/__init__.py
+@@ -0,0 +1,42 @@
++"""CPU-only Candle autotuning based on llama2.c's kasikoi2 search."""
++
++from .autotuner import AutoTuner
++from .benchmark import BenchmarkRunner
++from .benchmarkconfig import BenchmarkConfig
++from .topology import CPUTopology
++from pathlib import Path
++
++
++def main(argv=None):
++    import argparse
++
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--binary", type=Path, default=BenchmarkConfig.binary)
++    parser.add_argument("--model", type=Path, required=True)
++    parser.add_argument("--tokenizer", type=Path, required=True)
++    parser.add_argument("--group-size", type=int, default=BenchmarkConfig.group_size)
++    parser.add_argument("--no-int8", action="store_false", dest="two_stage_argmax")
++    parser.add_argument("--top-k", type=int, default=3)
++    parser.add_argument("--repeats", type=int, default=3)
++    parser.add_argument("--calibration-repeats", type=int, default=3)
++    parser.add_argument("--tolerance", type=float, default=0.05)
++    parser.add_argument("--seed", type=int, default=42)
++    parser.add_argument("--timeout", type=float, default=BenchmarkConfig.timeout)
++    args = parser.parse_args(argv)
++
++    topology = CPUTopology()
++    config = BenchmarkConfig(
++        cpus=tuple(sorted(topology.cpus)), threads=topology.n_logical_cpus,
++        binary=args.binary.resolve(), model=args.model.resolve(),
++        tokenizer=args.tokenizer.resolve(), two_stage_argmax=args.two_stage_argmax,
++        group_size=args.group_size, timeout=args.timeout,
++    )
++    tuner = AutoTuner(topology, BenchmarkRunner())
++    result = tuner.kasikoi2_search(
++        config, top_k=args.top_k, repeats=args.repeats, seed=args.seed,
++        calibration_repeats=args.calibration_repeats, tolerance=args.tolerance,
++    )
++    print(f"Best CPUs: {result.config.cpus}, threads={result.config.threads}")
++    print(f"Best performance: {result.tokens_per_second:.2f} token/s")
++    print(f"Search: {tuner.last_search['seconds']:.2f} s, "
++          f"{tuner.last_search['measurements']} measurements")
+diff --git a/benchmarks/cpuprofiler/src/cpuprofiler/__main__.py b/benchmarks/cpuprofiler/src/cpuprofiler/__main__.py
+new file mode 100644
+index 00000000..868d99ef
+--- /dev/null
++++ b/benchmarks/cpuprofiler/src/cpuprofiler/__main__.py
+@@ -0,0 +1,4 @@
++from . import main
++
++if __name__ == "__main__":
++    main()
+diff --git a/benchmarks/cpuprofiler/src/cpuprofiler/autotuner.py b/benchmarks/cpuprofiler/src/cpuprofiler/autotuner.py
+new file mode 100644
+index 00000000..7d9bd996
+--- /dev/null
++++ b/benchmarks/cpuprofiler/src/cpuprofiler/autotuner.py
+@@ -0,0 +1,299 @@
++from .benchmarkconfig import BenchmarkConfig
++from .benchmark import BenchmarkRunner
++from .topology import CPUTopology, CalibratedTopology, DomainClass, DomainProfile, build_domains
++from dataclasses import fields, replace
++import math
++import random
++import statistics
++import struct
++import time
++from collections import defaultdict
++
++
++def mean_result(rows):
++    """同じ構成の複数回の結果を、ms/tokenの平均を持つ1つの結果にまとめる。"""
++    return replace(rows[-1], tokens_per_second=1000 / statistics.fmean(r.ms_per_token for r in rows))
++
++
++class AutoTuner:
++    def __init__(self, topology: CPUTopology, runner: BenchmarkRunner):
++        self.topology = topology
++        self.runner = runner
++        self.history = []  # 実際に走らせた測定だけ
++        self.cache = {}  # BenchmarkConfig→結果。evaluate(cached=True)でだけ読み書きする
++
++    def evaluate(self, config, cached=False):
++        """cached=Trueなら同じ構成の既知の結果(キャリブレーションの平均を含む)を再利用する。"""
++        if cached and config in self.cache:
++            return self.cache[config]
++        result = self.runner.run(config)
++        self.history.append(result)
++        if cached:
++            self.cache[config] = result
++        return result
++
++    def calibrate(self, config=None, repeats=3, tolerance=0.05, seed=0):
++        calibrated = DomainCalibrator(self.topology, self.evaluate, config, repeats, tolerance, seed).calibrate()
++        self.cache.update(calibrated.results)
++        return calibrated
++
++    def kasikoi2_search(self, config=None, top_k=3, repeats=3, seed=42,
++                       calibrated=None, calibration_repeats=3, tolerance=0.05):
++        """1スレッドから最良配置に1CPUずつ足していくgreedy探索。
++
++        warmup → キャリブレーション(calibratedが無いとき) → CPU探索 → 補助設定調整 → 独立確認。
++        追加後の配置はDomainClassで正規化し、同型の配置は1回だけ測る。
++        キャリブレーションを含め、同じ構成の結果は再利用する(warmupと独立確認は毎回測る)。
++        補助設定(OpenMPのschedule/wait/spincount/proc_bind/dynamic/places、g)は、最良配置で項目ごとに
++        上位値へ絞り込んでから、CPU探索の上位top_k配置で組み合わせを探す。
++        """
++        if calibration_repeats < 1 or tolerance <= 0:
++            raise ValueError("calibration_repeats and tolerance must be positive")
++        started, history_start = time.perf_counter(), len(self.history)
++        search = LayoutSearch(self, config, top_k, repeats, seed)
++        self.cache.clear()
++        search.warmup()
++        if calibrated is None:
++            calibrated = self.calibrate(search.config, calibration_repeats, tolerance, seed)
++        self.cache.update(calibrated.results)  # 1CPU構成と同型候補のDomain全体はCPU探索で測り直さない
++        search.prepare(calibrated)
++        search.grow()
++        search.tune_runtime()
++        results = search.confirm()
++        self.last_search = {"seconds": time.perf_counter() - started,
++                            "measurements": len(self.history) - history_start,
++                            "exploration": len(search.measured), "baseline": search.baseline,
++                            "confirmed": results, "calibrated": calibrated, "stages": search.stages,
++                            "tuned": search.tuned, "screened": search.screened}
++        return results[0]
++
++
++class DomainCalibrator:
++    """構造(shape)が同じDomainを実測し、性能も揃うものだけを同型クラスにまとめる。
++
++    1. 各論理CPUを1スレッドで測る(repeats巡、巡ごとに順序をシャッフル)。
++    2. 同じshapeのDomainが複数ある場合だけ、Domain全体も全CPUで測る。
++    3. 同じshapeの中で、単一CPU性能(ソートしたCPU別平均)と全体性能の差が
++       すべてのペアでtolerance以内のものを1クラスにする(完全連結なので推移性の問題を避ける)。
++       ばらつきがtoleranceを超えるDomainは同型と言えないので単独クラスに残す。
++    """
++
++    def __init__(self, topology, benchmark, config=None, repeats=3, tolerance=0.05, seed=0):
++        if repeats < 1 or tolerance <= 0:
++            raise ValueError("repeats and tolerance must be positive")
++        self.topology, self.benchmark = topology, benchmark
++        cpus = tuple(sorted(topology.cpus))
++        self.config = config or BenchmarkConfig(cpus=cpus, threads=len(cpus))
++        self.repeats, self.tolerance, self.rng = repeats, tolerance, random.Random(seed)
++        self.results = {}
++
++    def calibrate(self):
++        domains = build_domains(self.topology)
++        by_shape = defaultdict(list)
++        for domain in domains:
++            by_shape[domain.shape].append(domain)
++        single = self._measure([(cpu,) for domain in domains for cpu in domain.cpus])
++        full = self._measure([domain.cpus for group in by_shape.values() if len(group) > 1
++                              for domain in group])
++        profiles = {domain.id: self._profile(domain, single, full) for domain in domains}
++        groups = [group for _, members in sorted(by_shape.items())
++                  for group in self._classify(members, profiles)]
++        groups.sort(key=lambda group: min(domain.id for domain in group))
++        classes = tuple(DomainClass(i, tuple(sorted(group, key=lambda d: d.id)))
++                        for i, group in enumerate(groups))
++        return CalibratedTopology(self.topology, domains, profiles, classes, self.results)
++
++    def _measure(self, cases):
++        runs = {cpus: [] for cpus in cases}
++        for _ in range(self.repeats):
++            order = list(runs)
++            self.rng.shuffle(order)  # ターボや温度の時系列バイアスをCPU番号に乗せない
++            for cpus in order:
++                case = replace(self.config, cpus=cpus, threads=len(cpus), omp_places=None)
++                runs[cpus].append(self.benchmark(case))
++        for rows in runs.values():
++            self.results[rows[0].config] = mean_result(rows)
++        return {cpus: [r.ms_per_token for r in rows] for cpus, rows in runs.items()}
++
++    @staticmethod
++    def _std(values):
++        return statistics.stdev(values) if len(values) > 1 else 0.0
++
++    def _profile(self, domain, single, full):
++        runs = [single[(cpu,)] for cpu in domain.cpus]
++        per_cpu = tuple(statistics.fmean(r) for r in runs)
++        whole = full.get(domain.cpus)
++        return DomainProfile(
++            domain_id=domain.id,
++            single_mean=statistics.fmean(per_cpu),
++            single_std=math.sqrt(statistics.fmean(self._std(r) ** 2 for r in runs)),
++            per_cpu_means=per_cpu,
++            full_mean=None if whole is None else statistics.fmean(whole),
++            full_std=None if whole is None else self._std(whole),
++        )
++
++    def _noisy(self, p):
++        return (p.single_std / p.single_mean > self.tolerance
++                or p.full_mean is not None and p.full_std / p.full_mean > self.tolerance)
++
++    def _similar(self, a, b):
++        def close(x, y):
++            return abs(math.log(x / y)) <= self.tolerance
++        if self._noisy(a) or self._noisy(b):
++            return False
++        if not all(close(x, y) for x, y in zip(sorted(a.per_cpu_means), sorted(b.per_cpu_means))):
++            return False
++        return a.full_mean is None or b.full_mean is None or close(a.full_mean, b.full_mean)
++
++    def _classify(self, domains, profiles):
++        groups = []
++        for domain in sorted(domains, key=lambda d: profiles[d.id].single_mean):
++            for group in groups:
++                if all(self._similar(profiles[domain.id], profiles[other.id]) for other in group):
++                    group.append(domain)
++                    break
++            else:
++                groups.append([domain])
++        return groups
++
++
++class LayoutSearch:
++    """kasikoi2_searchの状態と各段階。
++
++    measuredは探索で使った結果(BenchmarkConfig→結果、キャッシュから再利用したものを含む)、layoutsはCPU配置→ms/token、
++    stagesはスレッド数ごとの(測定した配置→ms/token)、tunedは上位配置ごとの補助設定調整後の構成。
++    """
++    # CPU配置が決まった後に試す補助設定。
++    # 1. スクリーニング: CPU探索の最良配置で、既定設定から1項目だけ変えて全候補を測り、項目ごとに上位TOP_VALUES個を残す。
++    # 2. 組み合わせ: 上位top_k配置それぞれで、残した値だけを座標降下で1項目ずつ最良値に固定する。
++    #    1周で何か変わればTUNE_PASSES周まで繰り返す(scheduleとg、waitとspincountの相互作用を拾う)。
++    RUNTIME_OPTIONS = {}  # Candle port: only CPU placement is searched.
++    MIN_GROUP = 16
++    TOP_VALUES = 3
++    TUNE_PASSES = 2
++
++    def __init__(self, tuner, config, top_k, repeats, seed):
++        cpus = tuple(sorted(tuner.topology.cpus))
++        if not cpus or top_k < 1 or repeats < 1:
++            raise ValueError("top_k and repeats must be positive")
++        config = config or BenchmarkConfig(cpus=cpus, threads=len(cpus))
++        if not config.cpus or not set(config.cpus) <= set(cpus):
++            raise ValueError("config.cpus must be available CPUs")
++        # CPU探索(warmup・キャリブレーションを含む)はOpenMP設定をBenchmarkConfigの既定値に戻して行い、
++        # 入力configの値は補助設定の候補と基準構成にだけ使う。gはモデル依存なので入力値のまま。
++        defaults = {f.name: f.default for f in fields(BenchmarkConfig)}
++        self.input = config
++        self.tuner, self.cpus = tuner, cpus
++        self.config = replace(config, **{name: defaults[name] for name in self.RUNTIME_OPTIONS
++                                         if name != "group_size"})
++        self.top_k, self.repeats = top_k, repeats
++        self.rng, self.measured, self.layouts = random.Random(seed), {}, {}
++        self.stages, self.tuned, self.screened = [], [], {}
++        self.baseline = replace(config, cpus=tuple(sorted(config.cpus)), threads=len(config.cpus), omp_places=None)
++
++    def make(self, mask, **changes):
++        return replace(self.config, cpus=mask, threads=len(mask), omp_places=None, **changes)
++
++    def measure(self, case):
++        result = self.tuner.evaluate(case, cached=True)
++        self.measured[case] = result
++        return result
++
++    def warmup(self):
++        self.tuner.evaluate(self.make(tuple(self.config.cpus)))  # 順位に使わない
++
++    def prepare(self, calibrated):
++        self.domains = [(c.id, domain) for c in calibrated.classes for domain in c.domains]
++        self.single_ms = {cpu: mean for domain in calibrated.domains
++                          for cpu, mean in zip(domain.cpus, calibrated.profiles[domain.id].per_cpu_means)}
++
++    def key(self, mask):
++        """同じDomainClass内でのDomainの入れ替え、同じ大きさのコアの入れ替えを同一視する。"""
++        used = set(mask)
++        return tuple(sorted(
++            (class_id, tuple(sorted((len(core), len(used & set(core))) for core in domain.cores)))
++            for class_id, domain in self.domains))
++
++    def children(self, parent):
++        """parentに1CPU足した配置。同型は1つにまとめる。"""
++        found = {}
++        for cpu in self.cpus:
++            if cpu not in parent:
++                mask = tuple(sorted(parent + (cpu,)))
++                found.setdefault(self.key(mask), mask)
++        return list(found.values())
++
++    def grow(self):
++        best = ()
++        for _ in self.cpus:
++            stage = {}
++            for mask in self.children(best):
++                stage[mask] = self.layouts[mask] = self.measure(self.make(mask)).ms_per_token
++            self.stages.append(stage)
++            best = min(stage, key=stage.get)
++
++    def runtime_options(self):
++        """試す補助設定。入力configの値も候補に入れる(omp_placesは配置ごとに作るので除く)。"""
++        options = {}
++        for name, values in self.RUNTIME_OPTIONS.items():
++            if name == "group_size":
++                if not self.config.two_stage_argmax:
++                    continue
++                with self.config.model.open("rb") as model:
++                    dim, = struct.unpack("i", model.read(4))
++                values = [g for g in range(self.MIN_GROUP, dim + 1) if dim % g == 0]
++            if name != "omp_places":
++                values = (getattr(self.input, name), *values)
++            options[name] = tuple(dict.fromkeys(values))
++        return options
++
++    def places(self, mask, order):
++        ordered = sorted(mask, key=self.single_ms.get, reverse=order == "slow_first")
++        if order == "id" or ordered == sorted(mask):
++            return None  # BenchmarkRunnerがCPU番号順に並べる
++        return ",".join(f"{{{cpu}}}" for cpu in ordered)
++
++    def variants(self, base, name, values):
++        """baseの1項目だけ変えた構成。値→構成で、同じ構成になる値は先の1つだけ残す。"""
++        cases = {}
++        for value in values:
++            setting = self.places(base.cpus, value) if name == "omp_places" else value
++            case = replace(base, **{name: setting})
++            if case not in cases.values():
++                cases[value] = case
++        return cases
++
++    def screen(self, mask, options):
++        """既定設定から1項目だけ変えて全候補を測り、項目ごとに速い順の上位TOP_VALUES個の値を残す。"""
++        base = self.make(mask)
++        for name, values in options.items():
++            cases = self.variants(base, name, values)
++            order = list(cases)
++            self.rng.shuffle(order)
++            ms = {value: self.measure(cases[value]).ms_per_token for value in order}
++            self.screened[name] = tuple(sorted(ms, key=ms.get)[:self.TOP_VALUES])
++
++    def tune_runtime(self):
++        masks = sorted(self.layouts, key=self.layouts.get)[:self.top_k]
++        self.screen(masks[0], self.runtime_options())
++        for mask in masks:
++            best = self.make(mask)
++            for _ in range(self.TUNE_PASSES):
++                start = best
++                for name, values in self.screened.items():
++                    cases = list(dict.fromkeys((best, *self.variants(best, name, values).values())))
++                    self.rng.shuffle(cases)
++                    best = min(cases, key=lambda case: self.measure(case).ms_per_token)
++                if best == start:
++                    break
++            self.tuned.append(best)
++
++    def confirm(self):
++        """調整後の各配置と基準構成を、巡ごとに順序を変えてrepeats回測り直し、平均で順位を付ける。"""
++        finalists = list(dict.fromkeys((*self.tuned, self.baseline)))
++        confirmed = {case: [] for case in finalists}
++        for _ in range(self.repeats):
++            self.rng.shuffle(finalists)
++            for case in finalists:
++                confirmed[case].append(self.tuner.evaluate(case))
++        return sorted(map(mean_result, confirmed.values()), key=lambda result: result.ms_per_token)
+diff --git a/benchmarks/cpuprofiler/src/cpuprofiler/benchmark.py b/benchmarks/cpuprofiler/src/cpuprofiler/benchmark.py
+new file mode 100644
+index 00000000..135674cc
+--- /dev/null
++++ b/benchmarks/cpuprofiler/src/cpuprofiler/benchmark.py
+@@ -0,0 +1,40 @@
++"""Run Candle's llama2-c example on a chosen CPU layout."""
++
++from dataclasses import dataclass
++import os
++import re
++import subprocess
++
++from .benchmarkconfig import BenchmarkConfig
++
++RATE_RE = re.compile(r"\n\d+ tokens generated \(([\d.]+) token/s\)")
++
++
++@dataclass
++class BenchmarkResult:
++    config: BenchmarkConfig
++    tokens_per_second: float
++
++    @property
++    def ms_per_token(self):
++        return 1000 / self.tokens_per_second
++
++
++class BenchmarkRunner:
++    def run(self, config: BenchmarkConfig) -> BenchmarkResult:
++        mask = ",".join(map(str, config.cpus))
++        command = ["taskset", "-c", mask, str(config.binary), "--cpu",
++                   "--tokenizer", str(config.tokenizer), "--repeat-penalty", "1",
++                   "inference", "--config", str(config.model),
++                   "--temperature", "0", "--prompt", config.prompt]
++        if config.two_stage_argmax:
++            command += ["--two-stage-argmax", "--group-size", str(config.group_size)]
++        env = os.environ.copy()
++        env.update(RAYON_NUM_THREADS=str(config.threads),
++                   CANDLE_NUM_THREADS=str(config.threads), CANDLE_CPU_MASK=mask)
++        result = subprocess.run(command, env=env, capture_output=True, text=True,
++                                check=True, timeout=config.timeout)
++        match = RATE_RE.search(result.stdout)
++        if match is None:
++            raise RuntimeError(f"token/s not found in output:\n{result.stdout[-1000:]}")
++        return BenchmarkResult(config, float(match.group(1)))
+diff --git a/benchmarks/cpuprofiler/src/cpuprofiler/benchmarkconfig.py b/benchmarks/cpuprofiler/src/cpuprofiler/benchmarkconfig.py
+new file mode 100644
+index 00000000..c62071be
+--- /dev/null
++++ b/benchmarks/cpuprofiler/src/cpuprofiler/benchmarkconfig.py
+@@ -0,0 +1,20 @@
++"""Fixed Candle workload; AutoTuner varies only cpus and threads."""
++
++from dataclasses import dataclass
++from pathlib import Path
++
++REPO_ROOT = Path(__file__).resolve().parents[4]
++
++
++@dataclass(frozen=True)
++class BenchmarkConfig:
++    cpus: tuple[int, ...]
++    threads: int
++    binary: Path = REPO_ROOT / "target/release/examples/llama2-c"
++    model: Path = Path("stories15M.bin")
++    tokenizer: Path = Path("tokenizer.json")
++    prompt: str = "Once upon a time"
++    two_stage_argmax: bool = True
++    group_size: int = 32
++    timeout: float = 120
++    omp_places: str | None = None  # Compatibility with llama2.c AutoTuner.
+diff --git a/benchmarks/cpuprofiler/src/cpuprofiler/topology.py b/benchmarks/cpuprofiler/src/cpuprofiler/topology.py
+new file mode 100644
+index 00000000..5adbbac8
+--- /dev/null
++++ b/benchmarks/cpuprofiler/src/cpuprofiler/topology.py
+@@ -0,0 +1,339 @@
++import os
++import re
++from collections import defaultdict
++from dataclasses import dataclass, field
++from functools import cached_property
++from pathlib import Path
++
++SYS_CPU = Path("/sys/devices/system/cpu")
++
++
++def read(path, default=""):
++    try:
++        return Path(path).read_text().strip()
++    except OSError:
++        return default
++
++
++def parse_cpu_list(value):
++    """'0-3,8,10-11' -> [0,1,2,3,8,10,11]"""
++    cpus = []
++
++    for part in value.split(","):
++        if not part:
++            continue
++
++        if "-" in part:
++            start, end = map(int, part.split("-"))
++            cpus.extend(range(start, end + 1))
++        else:
++            cpus.append(int(part))
++
++    return sorted(set(cpus))
++
++
++class CPU:
++    def __init__(self, cpu_id):
++        self.cpu_id = cpu_id
++        self.path = SYS_CPU / f"cpu{cpu_id}"
++        self.topology_path = self.path / "topology"
++        self.cache_path = self.path / "cache"
++
++    @property
++    def is_online(self):
++        # cpu0/onlineから読むと/onlineがないケースに対応できないので，こちらから読む
++        return self.cpu_id in parse_cpu_list(
++            read(SYS_CPU / "online")
++        )
++
++    @property
++    def is_available(self):
++        return (
++            self.is_online
++            and self.cpu_id in os.sched_getaffinity(0)
++        )
++
++    @property
++    def core_id(self):
++        value = read(self.topology_path / "core_id")
++        return int(value) if value else None
++
++    @property
++    def package_id(self):
++        value = read(self.topology_path / "physical_package_id")
++        return int(value) if value else None
++
++    # core_cpus_listとthread_siblings_listはともに，同じ物理コアに属する論理CPUを返す。
++    # 例) cat /sys/devices/system/cpu/cpu0/topology/core_cpus_listの結果は0-1
++    @property
++    def core_cpus_list(self):
++        value = read(self.topology_path / "core_cpus_list")
++
++        if not value:
++            value = read(self.topology_path / "thread_siblings_list")
++
++        return parse_cpu_list(value)
++
++    @property
++    def l2_cache(self):
++        for index in self.cache_path.glob("index*"):
++            level = read(index / "level")
++            cache_type = read(index / "type")
++
++            if level == "2" and cache_type in ("Unified", "Data"):
++                return {
++                    "size": read(index / "size"),
++                    "shared_cpus": parse_cpu_list(
++                        read(index / "shared_cpu_list")
++                    )
++                }
++
++        return None
++
++    def ln_cache(self,n):
++        for index in self.cache_path.glob("index*"):
++            level = read(index / "level")
++            cache_type = read(index / "type")
++
++            if level == str(n) and cache_type in ("Unified", "Data"):
++                return {
++                    "size": read(index / "size"),
++                    "shared_cpus": parse_cpu_list(
++                        read(index / "shared_cpu_list")
++                    )
++                }
++
++        return None
++
++    def __repr__(self):
++        return (
++            f"CPU(id={self.cpu_id}, "
++            f"core={self.core_id}, "
++            f"siblings={self.core_cpus_list}, "
++            f"l2={self.l2_cache})"
++        )
++class CPUTopology:
++    def __init__(self):
++        # Linuxが認識しているオンラインCPU
++        online = set(
++            parse_cpu_list(read(SYS_CPU / "online"))
++        )
++
++        # 現在のプロセスが利用できるCPU
++        allowed = set(os.sched_getaffinity(0))
++
++        # 実際に使用可能な論理CPU
++        self.available_cpu_ids = sorted(online & allowed)
++
++        # CPUオブジェクトを生成
++        self.cpus = {
++            cpu_id: CPU(cpu_id)
++            for cpu_id in self.available_cpu_ids
++        }
++
++        # 物理コア単位に分類
++        self.physical_cores = self._group_physical_cores()
++
++        # L2キャッシュ共有単位に分類
++        self.l2_groups = self._group_l2_cache()
++
++    def _group_physical_cores(self):
++        groups = {}
++
++        for cpu in self.cpus.values():
++            siblings = cpu.core_cpus_list
++
++            if siblings:
++                # SMTを含む同一物理コアのCPU集合
++                key = ("siblings", tuple(siblings))
++                # ("siblings", (0, 1))というものをキーにする。
++            elif cpu.package_id is not None and cpu.core_id is not None:
++                # siblingsが取得できない場合
++                key = ("core", cpu.package_id, cpu.core_id)
++
++            else:
++                # トポロジー不明なら別コアとして扱う
++                key = ("unknown", cpu.cpu_id)
++
++            # valueはリストなので，同じKeyを持つところにCPUを追加する。
++            groups.setdefault(key, []).append(cpu.cpu_id)
++
++        return [
++            sorted(group)
++            for group in groups.values()
++        ]
++
++    def _group_l2_cache(self):
++        groups = {}
++
++        for cpu in self.cpus.values():
++            cache = cpu.l2_cache
++
++            if cache is None:
++                continue
++
++            # CPU(1).l2_cacheは{'size': '256K', 'shared_cpus': [0, 1]}のような辞書を返す。同じL2キャッシュを共有するものがshared_cpusに入る。
++            shared = cache["shared_cpus"]
++
++            if not shared:
++                continue
++
++            # 同じL2キャッシュを共有するCPUをまとめる。keyを(0,1)と共有するタプルとする。
++            key = tuple(shared)
++
++            # sharedの中でavailableのもののみを残して，valueとする。
++            groups[key] = sorted(
++                set(shared) & set(self.available_cpu_ids)
++            )
++
++        return list(groups.values())
++
++    @cached_property
++    def domains(self):
++        """L2共有 ∨ 同一物理コアの連結成分。"""
++        return build_domains(self)
++
++    @property
++    def representative_cpus(self):
++        """
++        各物理コアから1つの論理CPUを選ぶ
++        """
++        return [
++            self.cpus[min(group)]
++            for group in self.physical_cores
++        ]
++
++    @property
++    def n_logical_cpus(self):
++        return len(self.cpus)
++
++    @property
++    def n_physical_cores(self):
++        return len(self.physical_cores)
++
++    def print_summary(self):
++        print("=== CPU Topology ===")
++
++        print(f"Logical CPUs: {self.n_logical_cpus}")
++        print(f"Physical Cores: {self.n_physical_cores}")
++
++        print("\nPhysical Cores:")
++        for i, group in enumerate(self.physical_cores):
++            print(f"  Core {i:2d}: CPUs {group}")
++
++        print("\nL2 Cache Groups:")
++        for i, group in enumerate(self.l2_groups):
++            cpu = self.cpus[group[0]]
++            size = cpu.l2_cache["size"]
++
++            print(f"  L2 {i}: CPUs {group}, Size={size}")
++
++        print("\nRepresentative CPUs:")
++        print([cpu.cpu_id for cpu in self.representative_cpus])
++
++# ここからTopologyを使った探索のための新しい構造, UnionFindで実装。
++
++@dataclass(frozen=True)
++class Domain:
++    id: int
++    cores: tuple[tuple[int, ...], ...]
++    cpus: tuple[int, ...]
++    l2_ids: tuple[int, ...]
++
++    @property
++    def shape(self):
++        """物理コアごとの論理CPU数。同じshapeのDomainだけが同型の候補になる。"""
++        return tuple(sorted(len(core) for core in self.cores))
++
++
++def build_domains(topology):
++    """topologyはcpus, l2_groups, physical_coresを持てばよい(CPUTopology.domainsからも使う)。"""
++    available = set(topology.cpus)
++    parent = {cpu: cpu for cpu in available}
++
++    def find(cpu):
++        while parent[cpu] != cpu:
++            parent[cpu] = parent[parent[cpu]]
++            cpu = parent[cpu]
++        return cpu
++
++    def union_group(group):
++        cpus = sorted(set(group) & available)
++        if not cpus:
++            return
++        root = find(cpus[0])
++        for cpu in cpus[1:]:
++            parent[find(cpu)] = root
++
++    # L2共有と物理コアの両方でCPUを結合
++    for group in topology.l2_groups:
++        union_group(group)
++    for core in topology.physical_cores:
++        union_group(core)
++
++    # 連結成分を抽出
++    components = defaultdict(set)
++    for cpu in available:
++        components[find(cpu)].add(cpu)
++
++    domains = []
++    for i, cpus in enumerate(sorted(components.values(), key=min)):
++        cores = tuple(
++            tuple(sorted(set(core) & cpus))
++            for core in topology.physical_cores
++            if set(core) & cpus
++        )
++        l2_ids = tuple(
++            j for j, group in enumerate(topology.l2_groups)
++            if set(group) & cpus
++        )
++
++        domains.append(Domain(
++            id=i,
++            cores=cores,
++            cpus=tuple(sorted(cpus)),
++            l2_ids=l2_ids,
++        ))
++
++    return tuple(domains)
++
++
++# ここから実測によるDomainの同型判定の結果。Domainは物理構造のまま不変にし、測定情報は外側に持つ。
++
++@dataclass(frozen=True)
++class DomainProfile:
++    domain_id: int
++    single_mean: float  # 各CPUを1スレッドで測った平均の平均 [ms/token]
++    single_std: float  # 同一CPUでの実行間ばらつき(プールした標準偏差)。CPU間の差はper_cpu_meansで見る
++    per_cpu_means: tuple[float, ...]  # domain.cpusの順
++    full_mean: float | None = None  # Domainの全CPUで同時実行 [ms/token]。比較相手がいないDomainは測らない
++    full_std: float | None = None
++
++
++@dataclass(frozen=True)
++class DomainClass:
++    id: int
++    domains: tuple[Domain, ...]
++
++
++@dataclass
++class CalibratedTopology:
++    topology: CPUTopology
++    domains: tuple[Domain, ...]
++    profiles: dict[int, DomainProfile]
++    classes: tuple[DomainClass, ...]
++    # 測定条件(BenchmarkConfig)→repeats回の平均結果。条件が完全に一致する探索の測定にだけ再利用される
++    results: dict = field(default_factory=dict)
++
++    def class_of(self, domain):
++        return next(c for c in self.classes if domain in c.domains)
++
++    def print_summary(self):
++        print("=== Calibrated Domains ===")
++        for c in self.classes:
++            print(f"Class {c.id}:")
++            for domain in c.domains:
++                p = self.profiles[domain.id]
++                full = "-" if p.full_mean is None else f"{p.full_mean:.3f}±{p.full_std:.3f}"
++                print(f"  Domain {domain.id}: cores={domain.cores} "
++                      f"single={p.single_mean:.3f}±{p.single_std:.3f} full={full} ms/token")
+diff --git a/benchmarks/cpuprofiler/uv.lock b/benchmarks/cpuprofiler/uv.lock
+new file mode 100644
+index 00000000..5b464d75
+--- /dev/null
++++ b/benchmarks/cpuprofiler/uv.lock
+@@ -0,0 +1,8 @@
++version = 1
++revision = 5
++requires-python = ">=3.10"
++
++[[package]]
++name = "cpuprofiler"
++version = "0.1.0"
++source = { editable = "." }
+diff --git a/candle-examples/examples/llama2-c/classifier.rs b/candle-examples/examples/llama2-c/classifier.rs
+new file mode 100644
+index 00000000..74b05c26
+--- /dev/null
++++ b/candle-examples/examples/llama2-c/classifier.rs
+@@ -0,0 +1,103 @@
++//! Two-stage greedy argmax over the output projection, ported from the llama2.c fork
++//! (2026-07-llama2c `src/classifier.h`).
++//!
++//! Every row is first scored with group-wise int8 weights together with an error bound.
++//! Only the rows whose upper bound reaches the best lower bound are recomputed in f32, and
++//! the argmax is taken over those. This keeps the greedy choice of the f32 output layer
++//! without computing all the f32 logits.
++use anyhow::{bail, Result};
++use candle::Tensor;
++use rayon::prelude::*;
++
++pub struct Int8Classifier {
++    w: Vec<f32>,
++    q: Vec<i8>,
++    s: Vec<f32>,
++    dim: usize,
++    gs: usize,
++}
++
++const ROWS_PER_TASK: usize = 64;
++
++impl Int8Classifier {
++    /// `w` is the (vocab_size, dim) output weight, `gs` the quantization group size.
++    pub fn new(w: &Tensor, gs: usize) -> Result<Self> {
++        let (vocab, dim) = w.dims2()?;
++        if gs == 0 || dim % gs != 0 {
++            bail!("group size {gs} must divide the model dim {dim}")
++        }
++        let w = w.flatten_all()?.to_vec1::<f32>()?;
++        let ng = dim / gs;
++        let mut q = vec![0i8; vocab * dim];
++        let mut s = vec![0f32; vocab * ng];
++        q.par_chunks_mut(dim)
++            .zip(s.par_chunks_mut(ng))
++            .zip(w.par_chunks(dim))
++            .for_each(|((q, s), w)| {
++                for g in 0..ng {
++                    let w = &w[g * gs..(g + 1) * gs];
++                    let wmax = w.iter().fold(0f32, |m, v| m.max(v.abs()));
++                    let scale = wmax / 127.0;
++                    s[g] = scale;
++                    for (q, w) in q[g * gs..(g + 1) * gs].iter_mut().zip(w) {
++                        *q = if scale > 0.0 {
++                            (w / scale).round() as i8
++                        } else {
++                            0
++                        };
++                    }
++                }
++            });
++        Ok(Self { w, q, s, dim, gs })
++    }
++
++    /// Returns the index of the largest f32 logit for the hidden state `x` (length dim).
++    pub fn argmax(&self, x: &[f32]) -> u32 {
++        let (dim, gs) = (self.dim, self.gs);
++        let ng = dim / gs;
++        let a: Vec<f32> = x
++            .chunks(gs)
++            .map(|x| x.iter().map(|v| v.abs()).sum())
++            .collect();
++        // (upper bound, lower bound) of every row.
++        let bounds: Vec<(f32, f32)> = candle::utils::with_threadpool(|| {
++            self.q
++                .par_chunks(dim * ROWS_PER_TASK)
++                .zip(self.s.par_chunks(ng * ROWS_PER_TASK))
++                .flat_map_iter(|(q, s)| {
++                    q.chunks(dim).zip(s.chunks(ng)).map(|(q, s)| {
++                        let mut approx = 0f32;
++                        let mut bound = 0f32;
++                        for g in 0..ng {
++                            let mut dot = 0f32;
++                            for (q, x) in q[g * gs..(g + 1) * gs].iter().zip(&x[g * gs..]) {
++                                dot += *q as f32 * x;
++                            }
++                            approx += dot * s[g];
++                            bound += s[g] * a[g];
++                        }
++                        // Same rounding margin as the C implementation.
++                        let err = 0.51 * bound + 1e-6;
++                        (approx + err, approx - err)
++                    })
++                })
++                .collect()
++        });
++        let lo = bounds.iter().fold(f32::MIN, |m, b| m.max(b.1));
++        let mut best = (0u32, f32::MIN);
++        for (i, b) in bounds.iter().enumerate() {
++            if b.0 < lo {
++                continue;
++            }
++            let w = &self.w[i * dim..(i + 1) * dim];
++            let mut v = 0f32;
++            for (w, x) in w.iter().zip(x) {
++                v += w * x;
++            }
++            if v > best.1 {
++                best = (i as u32, v);
++            }
++        }
++        best.0
++    }
++}
+diff --git a/candle-examples/examples/llama2-c/main.rs b/candle-examples/examples/llama2-c/main.rs
+index e3953cb4..386b9ed4 100644
+--- a/candle-examples/examples/llama2-c/main.rs
++++ b/candle-examples/examples/llama2-c/main.rs
+@@ -9,6 +9,7 @@ extern crate intel_mkl_src;
+ use candle_transformers::models::llama2_c as model;
+ use candle_transformers::models::llama2_c_weights as weights;
+ use candle_transformers::models::quantized_llama2_c as qmodel;
++mod classifier;
+ mod training;
+ use clap::{Parser, Subcommand};
+ 
+@@ -48,6 +49,15 @@ struct InferenceCmd {
+     /// https://huggingface.co/karpathy/tinyllamas/tree/main
+     #[arg(long, default_value = "stories15M.bin")]
+     which_model: String,
++
++    /// Greedy sampling only: screen the output rows with int8 weights and recompute the
++    /// candidates in f32.
++    #[arg(long)]
++    two_stage_argmax: bool,
++
++    /// Quantization group size for --two-stage-argmax, must divide the model dim.
++    #[arg(long, default_value_t = 32)]
++    group_size: usize,
+ }
+ 
+ #[derive(Parser, Debug, Clone)]
+@@ -144,6 +154,8 @@ fn main() -> anyhow::Result<()> {
+                 config: None,
+                 model_id: "karpathy/tinyllamas".to_string(),
+                 which_model: "stories15M.bin".to_string(),
++                two_stage_argmax: false,
++                group_size: 32,
+             };
+             run_inference(&cmd, &args)?
+         }
+@@ -324,6 +336,20 @@ fn run_inference(args: &InferenceCmd, common_args: &Args) -> Result<()> {
+         (model, config, cache)
+     };
+ 
++    let classifier = if args.two_stage_argmax {
++        let greedy = args.temperature.map_or(true, |t| t <= 0.0);
++        match &model {
++            Model::Llama(l) if greedy && common_args.repeat_penalty == 1. => Some(
++                classifier::Int8Classifier::new(l.lm_head_weight(), args.group_size)?,
++            ),
++            _ => anyhow::bail!(
++                "--two-stage-argmax needs a non-gguf model, --temperature 0 and --repeat-penalty 1"
++            ),
++        }
++    } else {
++        None
++    };
++
+     println!("starting the inference loop");
+     let mut logits_processor = LogitsProcessor::new(299792458, args.temperature, args.top_p);
+     let mut index_pos = 0;
+@@ -344,6 +370,18 @@ fn run_inference(args: &InferenceCmd, common_args: &Args) -> Result<()> {
+         let context_size = if index > 0 { 1 } else { tokens.len() };
+         let ctxt = &tokens[tokens.len().saturating_sub(context_size)..];
+         let input = Tensor::new(ctxt, &device)?.unsqueeze(0)?;
++        if let (Some(classifier), Model::Llama(l)) = (&classifier, &model) {
++            let x = l.forward_hidden(&input, index_pos, &mut cache)?;
++            let x = x.i((0, x.dim(1)? - 1))?.to_vec1::<f32>()?;
++            index_pos += ctxt.len();
++            let next_token = classifier.argmax(&x);
++            tokens.push(next_token);
++            if let Some(t) = tokenizer.next_token(next_token)? {
++                print!("{t}");
++                std::io::stdout().flush()?;
++            }
++            continue;
++        }
+         let logits = model.forward(&input, index_pos, &mut cache)?;
+         let logits = logits.i((0, logits.dim(1)? - 1))?;
+         let logits = if common_args.repeat_penalty == 1. || tokens.is_empty() {
+diff --git a/candle-transformers/src/models/llama2_c.rs b/candle-transformers/src/models/llama2_c.rs
+index 887f1d7d..8c590a1c 100644
+--- a/candle-transformers/src/models/llama2_c.rs
++++ b/candle-transformers/src/models/llama2_c.rs
+@@ -345,14 +345,29 @@ pub struct Llama {
+ 
+ impl Llama {
+     pub fn forward(&self, x: &Tensor, index_pos: usize, cache: &mut Cache) -> Result<Tensor> {
++        let x = self.forward_hidden(x, index_pos, cache)?;
++        let logits = self.lm_head.forward(&x)?;
++        logits.to_dtype(DType::F32)
++    }
++
++    /// Runs the model up to the final norm, i.e. the input of the output projection.
++    pub fn forward_hidden(
++        &self,
++        x: &Tensor,
++        index_pos: usize,
++        cache: &mut Cache,
++    ) -> Result<Tensor> {
+         let (_b_sz, _seq_len) = x.dims2()?;
+         let mut x = self.wte.forward(x)?;
+         for (block_idx, block) in self.blocks.iter().enumerate() {
+             x = block.forward(&x, index_pos, block_idx, cache)?;
+         }
+-        let x = self.ln_f.forward(&x)?;
+-        let logits = self.lm_head.forward(&x)?;
+-        logits.to_dtype(DType::F32)
++        self.ln_f.forward(&x)
++    }
++
++    /// The output projection weight, of shape (vocab_size, dim).
++    pub fn lm_head_weight(&self) -> &Tensor {
++        self.lm_head.weight()
+     }
+ 
+     pub fn load(vb: VarBuilder, cfg: Config) -> Result<Self> {
+-- 
+2.43.0
+

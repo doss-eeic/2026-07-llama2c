@@ -1,0 +1,48 @@
+From bc70ce54d1a2afaba4ae928e527bb9af332edd67 Mon Sep 17 00:00:00 2001
+From: WatNeru <5904watanao@gmail.com>
+Date: Tue, 27 Oct 2026 15:22:55 +0900
+Subject: [PATCH 5/7] Separate one-time setup from CPU profiler runs
+
+---
+ README.md | 18 +++++++++++++-----
+ 1 file changed, 13 insertions(+), 5 deletions(-)
+
+diff --git a/README.md b/README.md
+index 74746bcb..27ad571d 100644
+--- a/README.md
++++ b/README.md
+@@ -2,7 +2,11 @@
+ 
+ ## CPU 最適化の使い方
+ 
+-Linux で `cargo`、`uv`、`taskset`、`curl` を使います。clone 後、リポジトリのルートから次を実行します。モデルと tokenizer は git 管理外の `data/` に保存します。
++Linux で `cargo`、`uv`、`taskset`、`curl` を使います。以下のコマンドはすべて clone したリポジトリのルートから実行します。
++
++### 初回のみ: モデルと tokenizer の配置・ビルド
++
++モデルと tokenizer は git 管理外の `data/` に保存します。ソースを更新した場合は `cargo build` を再実行してください。
+ 
+ ```bash
+ mkdir -p data
+@@ -11,10 +15,14 @@ curl -fL --retry 3 -o data/stories15M.bin \
+ curl -fL --retry 3 -o data/tokenizer.json \
+   https://huggingface.co/hf-internal-testing/llama-tokenizer/resolve/main/tokenizer.json
+ cargo build --release --example llama2-c
+-cd benchmarks/cpuprofiler
+-uv run --locked cpuprofiler \
+-  --model ../../data/stories15M.bin \
+-  --tokenizer ../../data/tokenizer.json
++```
++
++### 実行: 2 回目以降はこれだけ
++
++```bash
++uv run --project benchmarks/cpuprofiler --locked cpuprofiler \
++  --model data/stories15M.bin \
++  --tokenizer data/tokenizer.json
+ ```
+ 
+ `cpuprofiler` は利用可能な CPU の組み合わせとスレッド数を測り、最速の設定、生成速度 (token/s)、探索時間を表示します。実行時オプションの探索はなく、測定中は Int8 の two-stage argmax を使います。主な指定は次のとおりです。
+-- 
+2.43.0
+

@@ -1,0 +1,55 @@
+From 80915fbd588b43bc4c49d4b396e5d4389050e2d8 Mon Sep 17 00:00:00 2001
+From: WatNeru <5904watanao@gmail.com>
+Date: Tue, 27 Oct 2026 15:22:09 +0900
+Subject: [PATCH 4/7] Make CPU profiler README commands runnable after clone
+
+---
+ README.md | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/README.md b/README.md
+index 7a16a544..74746bcb 100644
+--- a/README.md
++++ b/README.md
+@@ -2,14 +2,19 @@
+ 
+ ## CPU 最適化の使い方
+ 
+-Linux で `cargo`、`uv`、`taskset` を使います。モデル (`stories15M.bin` など) と対応する `tokenizer.json` を用意し、リポジトリのルートで実行します。
++Linux で `cargo`、`uv`、`taskset`、`curl` を使います。clone 後、リポジトリのルートから次を実行します。モデルと tokenizer は git 管理外の `data/` に保存します。
+ 
+ ```bash
++mkdir -p data
++curl -fL --retry 3 -o data/stories15M.bin \
++  https://huggingface.co/karpathy/tinyllamas/resolve/main/stories15M.bin
++curl -fL --retry 3 -o data/tokenizer.json \
++  https://huggingface.co/hf-internal-testing/llama-tokenizer/resolve/main/tokenizer.json
+ cargo build --release --example llama2-c
+ cd benchmarks/cpuprofiler
+ uv run --locked cpuprofiler \
+-  --model /path/to/stories15M.bin \
+-  --tokenizer /path/to/tokenizer.json
++  --model ../../data/stories15M.bin \
++  --tokenizer ../../data/tokenizer.json
+ ```
+ 
+ `cpuprofiler` は利用可能な CPU の組み合わせとスレッド数を測り、最速の設定、生成速度 (token/s)、探索時間を表示します。実行時オプションの探索はなく、測定中は Int8 の two-stage argmax を使います。主な指定は次のとおりです。
+@@ -23,12 +28,12 @@ uv run --locked cpuprofiler \
+ | `--calibration-repeats N` | CPU 特性の測定回数 | `3` |
+ | `--binary PATH` | 測定する実行ファイル | `target/release/examples/llama2-c` |
+ 
+-`--help` で全オプションを確認できます。Int8 の比較では `--group-size` を変えて個別に実行してください。通常の推論だけを実行する場合は、次のように指定します。
++`--help` で全オプションを確認できます。Int8 の比較では `--group-size` を変えて個別に実行してください。通常の推論だけを実行する場合は、リポジトリのルートから次のように指定します。
+ 
+ ```bash
+ ./target/release/examples/llama2-c --cpu \
+-  --tokenizer /path/to/tokenizer.json --repeat-penalty 1 \
+-  inference --config /path/to/stories15M.bin --temperature 0 \
++  --tokenizer data/tokenizer.json --repeat-penalty 1 \
++  inference --config data/stories15M.bin --temperature 0 \
+   --two-stage-argmax --group-size 32
+ ```
+ 
+-- 
+2.43.0
+
