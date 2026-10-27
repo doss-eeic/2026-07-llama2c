@@ -24,6 +24,33 @@ make run
 従来の`make run`のコンパイル処理は`make build-run`へ移しました。
 実行設定とPython APIは [kasikoi2の説明](project/docs/kasikoi-search.md) を参照してください。
 
+### upstreamとの比較（15Mモデル）
+
+同梱の`build/stories15M.bin`で、upstream、最適化版の既定設定、追加機能を
+有効にした最適化版を同じ入力で実行できます。
+
+```bash
+make runomp runupstream
+export OMP_NUM_THREADS=4 OMP_DYNAMIC=FALSE OMP_PROC_BIND=close
+export OMP_PLACES='{4},{5},{6},{7}' OMP_SCHEDULE='dynamic,16'
+taskset -c 4,5,6,7 ./build/run-upstream build/stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
+taskset -c 4,5,6,7 ./build/run-fused build/stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
+taskset -c 4,5,6,7 ./build/run-fused build/stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time" -w 1 -a 1 -g 144
+```
+
+このマシン（Intel Core Ultra 5 225U）で両バイナリを
+`gcc -Ofast -fopenmp -march=native`でビルドし、上記条件で各5回実行した中央値です。
+
+| 実行方法 | tok/s | upstream比 |
+| --- | ---: | ---: |
+| upstream | 483.59 | 1.00倍 |
+| 最適化版の既定設定 | 495.52 | 1.02倍 |
+| 最適化版 `-w 1 -a 1 -g 144` | 706.07 | 1.46倍 |
+
+この入力では3方式の生成テキストが一致しました。upstreamは`OMP_SCHEDULE`を
+参照せず、`-w`、`-a`、`-g`にも対応しません。速度差には仕事の分配方法と
+追加機能の効果が含まれます。
+
 ## 42Mモデルを使う
 
 42Mモデルの文脈長は最大1024ステップです。モデルを
@@ -104,7 +131,7 @@ Linux、`taskset`、OpenMP版の`build/run-fused`、Python 3.14以上が必要�
 `uv run cpuprofiler --help`で全オプションを確認できます。
 保存先を変えた場合は`make run TUNED_SCRIPT=/path/to/script.sh`で実行します。
 
-## 元のllama2.cについて（英語）
+## 元のllama2.cについて
 
 <p align="center">
   <img src="assets/llama_cute.jpg" width="300" height="300" alt="Cute Llama">
