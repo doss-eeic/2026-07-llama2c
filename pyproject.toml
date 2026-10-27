@@ -1,7 +1,7 @@
 [project]
 name = "cpuprofiler"
 version = "0.1.0"
-description = "Add your description here"
+description = "Topology-aware CPU autotuning with kasikoi2 for llama2.c"
 readme = "README.md"
 authors = [
     { name = "WatNeru", email = "5904watanao@gmail.com" }

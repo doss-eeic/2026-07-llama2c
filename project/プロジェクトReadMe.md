@@ -179,7 +179,7 @@ CPUクラスを用いて，実際にpythonコードからshellを投げてベン
 OMP_NUM_THREADS=1 \
 OMP_DYNAMIC=FALSE \
 taskset -c 4 \
-./build/omp-run ./build/stories15M.bin \
+./build/run-fused ./build/stories15M.bin \
     -n 256 \
     -t 0 \
     -s 42 \
@@ -205,11 +205,13 @@ taskset -c 4 \
 ## ベンチマークの取得
 
 今回は各工程の最適化を取らないため，ttsのみをベンチマークとする。
+以下のログは実行時に生成する（Git管理しない）。
 ```shell
+mkdir -p benchmark
 OMP_NUM_THREADS=1 \
 OMP_DYNAMIC=FALSE \
 taskset -c 4 \
-./build/omp-run ./build/stories15M.bin \
+./build/run-fused ./build/stories15M.bin \
     -n 256 \
     -t 0 \
     -s 42 \
@@ -226,7 +228,7 @@ import subprocess
 result = subprocess.run(
     [
         "taskset", "-c", "4",
-        "./build/omp-run", "./build/stories15M.bin",
+        "./build/run-fused", "./build/stories15M.bin",
         "-n", "256",
         "-t", "0",
         "-s", "42",

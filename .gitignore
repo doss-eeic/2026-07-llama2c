@@ -22,9 +22,8 @@ htmlcov/
 *.ilk
 *.dSYM/
 
-# Local benchmark runs; keep the recorded dataset used by the mock runner
-/benchmark/*
-!/benchmark/benchdata.sqlite3
+# Local benchmark runs
+/benchmark/
 *.sqlite3-wal
 *.sqlite3-shm
 *.sqlite3-journal
@@ -52,3 +51,6 @@ Thumbs.db
 # Keep this exception after extension-based ignore rules (e.g. *.exe).
 !/build/
 !/build/**
+
+# Machine-specific autotuning exports
+/build/run-tuned.sh

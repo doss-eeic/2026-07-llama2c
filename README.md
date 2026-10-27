@@ -8,6 +8,22 @@ The inference sources live in `run/`:
 Build both OpenMP executables with `make runomp runupstream`.
 They are written to `build/run-fused` and `build/run-upstream`.
 
+CPUの自動調整には **kasikoi2** を使います（Linux・OpenMP・Python 3.14以上）。
+
+```bash
+make runomp
+uv run cpuprofiler topology
+uv run cpuprofiler
+make run
+```
+
+キャリブレーション → CPU配置のgreedy探索 → OpenMP設定とargmaxの調整 → 上位構成の再測定を行います。
+引数なしの`uv run cpuprofiler`でkasikoi2を実行し、最良設定を展開したシェルスクリプト
+`build/run-tuned.sh`を保存します。以後は`make run`または`./build/run-tuned.sh`で実行できます。
+`make run ARGS='-n 128 -i "Hello"'`で生成引数を上書きできます。
+従来の`make run`のコンパイル処理は`make build-run`へ移しました。
+実行設定とPython APIは [kasikoi2の説明](project/docs/kasikoi-search.md) を参照してください。
+
 <p align="center">
   <img src="assets/llama_cute.jpg" width="300" height="300" alt="Cute Llama">
 </p>
@@ -45,7 +61,7 @@ wget https://huggingface.co/karpathy/tinyllamas/resolve/main/stories15M.bin
 Compile and run the C code:
 
 ```bash
-make run
+make build-run
 ./build/run-fused stories15M.bin
 ```
 
@@ -190,7 +206,7 @@ wget https://huggingface.co/karpathy/tinyllamas/resolve/main/stories15M.bin
 Once we have the model.bin file, we can inference in C. Compile the C code first:
 
 ```bash
-make run
+make build-run
 ```
 
 You can now run it simply as
@@ -253,7 +269,7 @@ This should print the samples. If you leave out the `-z` flag, it will use the d
 
 ## performance
 
-There are many ways to potentially speed up this code depending on your system. Have a look at the [Makefile](Makefile), which contains a lot of notes. The `make run` command currently uses the `-O3` optimization by default, i.e.:
+There are many ways to potentially speed up this code depending on your system. Have a look at the [Makefile](Makefile), which contains a lot of notes. The `make build-run` command currently uses the `-O3` optimization by default, i.e.:
 
 ```bash
 mkdir -p build

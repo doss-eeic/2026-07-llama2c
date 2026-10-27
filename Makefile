@@ -1,15 +1,23 @@
 # choose your compiler, e.g. gcc/clang
-# example override to clang: make run CC=clang
+# example override to clang: make build-run CC=clang
+.DEFAULT_GOAL := build-run
 CC = gcc
 CPPFLAGS ?= -I.
 RUN_SRC = run/run.c
 RUN_HEADERS = src/fused.h src/classifier.h
 
 # the most basic way of building that is most likely to work on most systems
-.PHONY: run
-run: $(RUN_SRC) $(RUN_HEADERS) | build
+.PHONY: build-run
+build-run: $(RUN_SRC) $(RUN_HEADERS) | build
 	$(CC) $(CPPFLAGS) -O3 -o build/run-fused $(RUN_SRC) -lm
 	$(CC) $(CPPFLAGS) -O3 -o runq runq.c -lm
+
+# Execute the shell script containing the saved tuned configuration.
+TUNED_SCRIPT ?= build/run-tuned.sh
+.PHONY: run
+run:
+	@test -x "$(TUNED_SCRIPT)" || { echo "Run make runomp and uv run cpuprofiler first."; exit 1; }
+	"$(TUNED_SCRIPT)" $(ARGS)
 
 # useful for a debug build, can then e.g. analyze with valgrind, example:
 # $ valgrind --leak-check=full ./build/run-fused out/model.bin -n 3
@@ -77,6 +85,7 @@ testcc:
 clean:
 	rm -f build/run-fused build/run-upstream build/run-fused.exe
 	rm -f runq
+	rm -f build/run-tuned.sh
 
 # Unmodified upstream baseline, built with the same OpenMP optimization flags.
 .PHONY: runupstream

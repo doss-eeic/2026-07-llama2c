@@ -1,5 +1,8 @@
 import os
 import re
+from collections import defaultdict
+from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 
 SYS_CPU = Path("/sys/devices/system/cpu")
@@ -185,6 +188,11 @@ class CPUTopology:
 
         return list(groups.values())
 
+    @cached_property
+    def domains(self):
+        """L2共有 ∨ 同一物理コアの連結成分。"""
+        return build_domains(self)
+
     @property
     def representative_cpus(self):
         """
@@ -223,34 +231,110 @@ class CPUTopology:
         print("\nRepresentative CPUs:")
         print([cpu.cpu_id for cpu in self.representative_cpus])
 
-    
+# ここからTopologyを使った探索のための新しい構造, UnionFindで実装。
 
-if __name__ == "__main__":
-    print("===read関数で特定ファイルを読める===")
-    print("\n/sys/devices/system/cpu/online：onlineのCPUリスト")
-    print(read(SYS_CPU / "online"))
-    print("\n/sys/devices/system/cpu/cpu0/topology/core_id：CPU0の物理コアID")
-    print(read(SYS_CPU / "cpu0" / "topology" / "core_id"))
-    print("\n/sys/devices/system/cpu/cpu0/topology/core_cpus_list：CPU0の物理コアを共有する論理CPUリスト")
-    print(read(SYS_CPU / "cpu0" / "topology" / "core_cpus_list"))
-    print("\n実行環境で利用可能なCPUのリスト")
-    print(os.sched_getaffinity(0))
-    print()
+@dataclass(frozen=True)
+class Domain:
+    id: int
+    cores: tuple[tuple[int, ...], ...]
+    cpus: tuple[int, ...]
+    l2_ids: tuple[int, ...]
 
-    print("===CPUクラスの利用例===")
-    print("\nCPU(0)の情報")
-    print(CPU(0))
-    print("\nCPU(0)のL3キャッシュ情報：/sys/devices/system/cpu/cpu0/cache/index3の内容をまとめている。")
-    print(CPU(0).ln_cache(3))
-    print("\nCPU(1)の物理コアを共有する論理CPUリスト")
-    print(CPU(1).core_cpus_list)
-    print()
-    print("===CPUTopologyクラスの利用例===")
-    print("\nl2_groups: L2キャッシュを共有するCPUのグループ")
-    print(CPUTopology().l2_groups)
-    print("\nphysical_cores: 各物理コアを使っている論理CPUのグループ")
-    print(CPUTopology().physical_cores)
+    @property
+    def shape(self):
+        """物理コアごとの論理CPU数。同じshapeのDomainだけが同型の候補になる。"""
+        return tuple(sorted(len(core) for core in self.cores))
 
-    print("\n===CPUTopologyのまとめ表示===")
-    print(CPUTopology().print_summary())
-    
+
+def build_domains(topology):
+    """topologyはcpus, l2_groups, physical_coresを持てばよい(CPUTopology.domainsからも使う)。"""
+    available = set(topology.cpus)
+    parent = {cpu: cpu for cpu in available}
+
+    def find(cpu):
+        while parent[cpu] != cpu:
+            parent[cpu] = parent[parent[cpu]]
+            cpu = parent[cpu]
+        return cpu
+
+    def union_group(group):
+        cpus = sorted(set(group) & available)
+        if not cpus:
+            return
+        root = find(cpus[0])
+        for cpu in cpus[1:]:
+            parent[find(cpu)] = root
+
+    # L2共有と物理コアの両方でCPUを結合
+    for group in topology.l2_groups:
+        union_group(group)
+    for core in topology.physical_cores:
+        union_group(core)
+
+    # 連結成分を抽出
+    components = defaultdict(set)
+    for cpu in available:
+        components[find(cpu)].add(cpu)
+
+    domains = []
+    for i, cpus in enumerate(sorted(components.values(), key=min)):
+        cores = tuple(
+            tuple(sorted(set(core) & cpus))
+            for core in topology.physical_cores
+            if set(core) & cpus
+        )
+        l2_ids = tuple(
+            j for j, group in enumerate(topology.l2_groups)
+            if set(group) & cpus
+        )
+
+        domains.append(Domain(
+            id=i,
+            cores=cores,
+            cpus=tuple(sorted(cpus)),
+            l2_ids=l2_ids,
+        ))
+
+    return tuple(domains)
+
+
+# ここから実測によるDomainの同型判定の結果。Domainは物理構造のまま不変にし、測定情報は外側に持つ。
+
+@dataclass(frozen=True)
+class DomainProfile:
+    domain_id: int
+    single_mean: float  # 各CPUを1スレッドで測った平均の平均 [ms/token]
+    single_std: float  # 同一CPUでの実行間ばらつき(プールした標準偏差)。CPU間の差はper_cpu_meansで見る
+    per_cpu_means: tuple[float, ...]  # domain.cpusの順
+    full_mean: float | None = None  # Domainの全CPUで同時実行 [ms/token]。比較相手がいないDomainは測らない
+    full_std: float | None = None
+
+
+@dataclass(frozen=True)
+class DomainClass:
+    id: int
+    domains: tuple[Domain, ...]
+
+
+@dataclass
+class CalibratedTopology:
+    topology: CPUTopology
+    domains: tuple[Domain, ...]
+    profiles: dict[int, DomainProfile]
+    classes: tuple[DomainClass, ...]
+    # 測定条件(BenchmarkConfig)→repeats回の平均結果。条件が完全に一致する探索の測定にだけ再利用される
+    results: dict = field(default_factory=dict)
+
+    def class_of(self, domain):
+        return next(c for c in self.classes if domain in c.domains)
+
+    def print_summary(self):
+        print("=== Calibrated Domains ===")
+        for c in self.classes:
+            print(f"Class {c.id}:")
+            for domain in c.domains:
+                p = self.profiles[domain.id]
+                full = "-" if p.full_mean is None else f"{p.full_mean:.3f}±{p.full_std:.3f}"
+                print(f"  Domain {domain.id}: cores={domain.cores} "
+                      f"single={p.single_mean:.3f}±{p.single_std:.3f} full={full} ms/token")
+

@@ -29,6 +29,16 @@ class BenchmarkConfig:
     timeout: float = 300
 
     def __post_init__(self):
+        if not self.cpus or len(set(self.cpus)) != len(self.cpus) or any(c < 0 for c in self.cpus):
+            raise ValueError("cpus must contain unique nonnegative CPU ids")
+        if self.threads < 1 or self.threads > len(self.cpus):
+            raise ValueError("threads must be between 1 and len(cpus)")
+        if self.steps < 2 or self.timeout <= 0:
+            raise ValueError("steps must be at least 2 and timeout must be positive")
+        if self.group_size < 1:
+            raise ValueError("group_size must be positive")
+        if self.two_stage_argmax and self.temperature != 0:
+            raise ValueError("two_stage_argmax requires temperature=0")
         if self.omp_wait_policy is not None and self.omp_wait_policy.upper() not in ("ACTIVE", "PASSIVE"):
             raise ValueError("omp_wait_policy must be ACTIVE, PASSIVE or None")
         if self.gomp_spincount is not None and (not isinstance(self.gomp_spincount, int) or self.gomp_spincount < 0):
