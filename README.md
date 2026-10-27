@@ -24,38 +24,33 @@ make run
 従来の`make run`のコンパイル処理は`make build-run`へ移しました。
 実行設定とPython APIは [kasikoi2の説明](project/docs/kasikoi-search.md) を参照してください。
 
-### upstreamとの比較（15Mモデル）
+### upstreamの使い方（15Mモデル）
 
 「素のupstream」は元の`make run`と同じ`gcc -O3`・OpenMPなしのビルドです。
 元のリポジトリでは`./run`ですが、このブランチには`run/`ディレクトリがあるため
-`build/run-upstream-plain`へ出力します。「OpenMP upstream」は最適化版と
-コンパイルフラグとCPU配置を揃えた比較用ビルドです。
+`build/run-upstream-plain`へ出力します。「OpenMP upstream」は
+`-Ofast -fopenmp -march=native`でビルドし、CPU配置とスレッド数を指定する版です。
 
 ```bash
-make runupstreamplain runomp runupstream
+make runupstreamplain runupstream
 ./build/run-upstream-plain build/stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
 
 export OMP_NUM_THREADS=4 OMP_DYNAMIC=FALSE OMP_PROC_BIND=close
-export OMP_PLACES='{4},{5},{6},{7}' OMP_SCHEDULE='dynamic,16'
+export OMP_PLACES='{4},{5},{6},{7}'
 taskset -c 4,5,6,7 ./build/run-upstream build/stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
-taskset -c 4,5,6,7 ./build/run-fused build/stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time" -w 1 -a 1 -g 144
 ```
 
 このマシン（Intel Core Ultra 5 225U）で各5回実行した中央値です。
-OpenMP版2種類は`gcc -Ofast -fopenmp -march=native`でビルドし、
-CPU 4–7の4スレッドを使用しました。素のupstreamにはCPU固定やOpenMP設定を
-適用していません。
+OpenMP版はCPU 4–7の4スレッドを使用しました。素のupstreamにはCPU固定や
+OpenMP設定を適用していません。
 
 | 実行方法 | tok/s | 素のupstream比 |
 | --- | ---: | ---: |
 | 素のupstream（`-O3`、1スレッド） | 155.52 | 1.00倍 |
-| OpenMP upstream（同じCPU配置） | 480.43 | 3.09倍 |
-| 最適化版 `-w 1 -a 1 -g 144` | 703.82 | 4.53倍 |
+| OpenMP upstream（CPU配置指定） | 480.43 | 3.09倍 |
 
-この入力では3方式の生成テキストが一致しました。upstreamは`OMP_SCHEDULE`を
-参照せず、`-w`、`-a`、`-g`にも対応しません。素のupstreamとの差には
-コンパイル設定と並列化の効果が含まれます。最適化版はOpenMP upstream比で
-1.47倍でした。
+この入力では両方式の生成テキストが一致しました。upstreamは`OMP_SCHEDULE`を
+参照しません。速度差にはコンパイル設定と並列化の効果が含まれます。
 
 ## 42Mモデルを使う
 
@@ -78,37 +73,33 @@ make run ARGS='-n 0 -i "Once upon a time"'
 スクリプトにはモデルと実行ファイルの絶対パスが入るため、モデルやマシンを
 変えたら再探索してください。
 
-### upstreamとの比較（42Mモデル）
+### upstreamの使い方（42Mモデル）
 
-15Mと同様に、元の`make run`相当の素のupstream、CPU配置を揃えたOpenMP
-upstream、最適化版を比較します。`make run`は調整済みスクリプトの実行なので、
-比較時は各バイナリを直接呼びます。
+15Mと同様に、元の`make run`相当の素のupstreamと、CPU配置を指定した
+OpenMP upstreamを実行できます。このブランチの`make run`は調整済み
+スクリプトの実行なので、upstreamは各バイナリを直接呼びます。
 
 ```bash
-make runupstreamplain runomp runupstream
+make runupstreamplain runupstream
 ./build/run-upstream-plain build/stories42M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
 
 export OMP_NUM_THREADS=10 OMP_DYNAMIC=FALSE OMP_PROC_BIND=close
 export OMP_PLACES='{3},{2},{1},{0},{8},{10},{5},{9},{6},{4}'
-export OMP_SCHEDULE='guided,8' GOMP_SPINCOUNT=100000
+export GOMP_SPINCOUNT=100000
 taskset -c 0,1,2,3,4,5,6,8,9,10 ./build/run-upstream build/stories42M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
-taskset -c 0,1,2,3,4,5,6,8,9,10 ./build/run-fused build/stories42M.bin -n 256 -t 0 -s 42 -i "Once upon a time" -w 1 -a 1 -g 256
 ```
 
 以下はこのマシン（Intel Core Ultra 5 225U）での42Mモデルの測定例です。
-OpenMP版2種類は`gcc -Ofast -fopenmp -march=native`でビルドし、上記のCPU集合と
-10スレッドで実行しました。素のupstreamにはCPU固定やOpenMP設定を適用して
-いません。各5回実行した中央値です。
+OpenMP版は上記のCPU集合と10スレッドで実行しました。素のupstreamには
+CPU固定やOpenMP設定を適用していません。各5回実行した中央値です。
 
 | 実行方法 | tok/s | 素のupstream比 |
 | --- | ---: | ---: |
 | 素のupstream（`-O3`、1スレッド） | 44.63 | 1.00倍 |
-| OpenMP upstream（同じCPU配置） | 371.73 | 8.33倍 |
-| 最適化版 `-w 1 -a 1 -g 256` | 522.06 | 11.70倍 |
+| OpenMP upstream（CPU配置指定） | 371.73 | 8.33倍 |
 
-この入力では3方式の生成テキストが一致しました。最適化版はOpenMP upstream比で
-1.40倍でした。upstreamは`OMP_SCHEDULE`を参照しないため、OpenMP版同士の差には
-仕事の分配方法も含まれます。速度はモデル、CPU配置、生成内容によって変わります。
+この入力では両方式の生成テキストが一致しました。upstreamは`OMP_SCHEDULE`を
+参照しません。速度はモデル、CPU配置、生成内容によって変わります。
 
 ## cpuprofiler の設定と実行
 
