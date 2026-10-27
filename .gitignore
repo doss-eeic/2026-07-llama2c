@@ -52,5 +52,8 @@ Thumbs.db
 !/build/
 !/build/**
 
+# Downloaded 42M checkpoint; fetch it from Hugging Face instead of committing it.
+/build/stories42M.bin
+
 # Machine-specific autotuning exports
 /build/run-tuned.sh

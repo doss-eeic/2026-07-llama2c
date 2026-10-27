@@ -1,14 +1,14 @@
-## llama2.c
+# llama2.c：CPU推論の最適化
 
-The inference sources live in `run/`:
-
-- [run/run.c](run/run.c): optimized QKV/FFN inference, optional hugepages and two-stage argmax.
-- [run/run_upstream.c](run/run_upstream.c): unchanged upstream `350e04fe` baseline.
-
-Build both OpenMP executables with `make runomp runupstream`.
-They are written to `build/run-fused` and `build/run-upstream`.
+このブランチには、upstream `350e04fe` の推論実装をそのまま残した
+[`run/run_upstream.c`](run/run_upstream.c)と、最適化版の[`run/run.c`](run/run.c)があります。
+最適化版はQKV・FFNのOpenMP領域を融合し、重みのhugepage配置（`-w 1`）と
+greedy生成用の二段階argmax（`-a 1`）を選べます。出力層のgroup sizeは`-g`で指定します。
 
 CPUの自動調整には **kasikoi2** を使います（Linux・OpenMP・Python 3.14以上）。
+CPU配置、スレッド数、OpenMP設定、argmaxのgroup sizeを探索します。
+
+## 基本的な使い方（15Mモデル）
 
 ```bash
 make runomp
@@ -23,6 +23,88 @@ make run
 `make run ARGS='-n 128 -i "Hello"'`で生成引数を上書きできます。
 従来の`make run`のコンパイル処理は`make build-run`へ移しました。
 実行設定とPython APIは [kasikoi2の説明](project/docs/kasikoi-search.md) を参照してください。
+
+## 42Mモデルを使う
+
+42Mモデルの文脈長は最大1024ステップです。モデルを
+[karpathy/tinyllamas](https://huggingface.co/karpathy/tinyllamas)（MIT）から
+ダウンロードし、42M用の設定を探索します。
+モデルのdimは512なので、探索開始値に`--group-size 128`を指定します
+（group sizeはdimを割り切る必要があります）。
+
+```bash
+wget -P build https://huggingface.co/karpathy/tinyllamas/resolve/main/stories42M.bin
+make runomp
+uv run cpuprofiler --model build/stories42M.bin --group-size 128
+make run ARGS='-n 0 -i "Once upon a time"'
+```
+
+`-n 0`はモデルの最大文脈長を使いますが、終了トークンが出ると早く止まります。
+探索時の`--steps`は計測する長さで、生成時の長さは`make run ARGS='-n ...'`で
+変更できます。探索結果はGit管理外の`build/run-tuned.sh`に保存されます。
+スクリプトにはモデルと実行ファイルの絶対パスが入るため、モデルやマシンを
+変えたら再探索してください。
+
+### upstreamとの比較（42Mモデル）
+
+同じOpenMP最適化フラグで両方をビルドできます。`make run`は調整済みスクリプトを
+実行するため、upstreamを実行する場合は`build/run-upstream`を直接呼びます。
+
+```bash
+make runomp runupstream
+./build/run-upstream build/stories42M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
+./build/run-fused build/stories42M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
+./build/run-fused build/stories42M.bin -n 256 -t 0 -s 42 -i "Once upon a time" -w 1 -a 1 -g 256
+```
+
+upstreamは`-w`、`-a`、`-g`に対応しません。
+
+以下はこのマシン（Intel Core Ultra 5 225U）での42Mモデルの測定例です。
+両バイナリを`gcc -Ofast -fopenmp -march=native`でビルドし、CPU集合
+`0,1,2,3,4,5,6,8,9,10`、10スレッド、`OMP_DYNAMIC=FALSE`、`OMP_PROC_BIND=close`、
+`OMP_PLACES='{3},{2},{1},{0},{8},{10},{5},{9},{6},{4}'`、
+`OMP_SCHEDULE=guided,8`、`GOMP_SPINCOUNT=100000`を共通に設定しました。
+`-n 256 -t 0 -s 42 -i "Once upon a time"`を各5回実行した中央値です。
+
+| 実行方法 | tok/s | upstream比 |
+| --- | ---: | ---: |
+| upstream | 375.00 | 1.00倍 |
+| 最適化版の既定設定 | 395.91 | 1.06倍 |
+| 最適化版 `-w 1 -a 1 -g 256` | 528.54 | 1.41倍 |
+
+この入力では3方式の生成テキストが一致しました。upstreamは`OMP_SCHEDULE`を
+参照しないため、既定設定の差には仕事の分配方法の差も含まれます。
+`-w`と`-a`を有効にした比較にはそれぞれの追加処理の効果も含まれます。
+速度はモデル、CPU配置、生成内容によって変わります。
+
+## cpuprofiler の設定と実行
+
+`uv run cpuprofiler`は`uv run cpuprofiler kasikoi2`と同じです。既定では
+`build/stories15M.bin`を256ステップ、temperature 0、seed 42で計測します。
+CLIは重みのhugepage配置（`-w 1`）と二段階argmax（`-a 1`）を有効にし、
+CPU配置、スレッド数、OpenMP設定、argmaxのgroup sizeを探索します。
+Linux、`taskset`、OpenMP版の`build/run-fused`、Python 3.14以上が必要です。
+
+| オプション | 既定値 | 用途 |
+| --- | --- | --- |
+| `--binary` | `build/run-fused` | 計測するOpenMP版実行ファイル |
+| `--model` | `build/stories15M.bin` | 計測・生成するモデル |
+| `--tokenizer` | `tokenizer.bin` | モデルに対応するtokenizer |
+| `--steps` | `256` | 1回の計測ステップ数（2以上） |
+| `--group-size` | `144` | 二段階argmaxの初期group size。モデルのdimの約数を指定 |
+| `--top-k` | `3` | 組み合わせ調整へ残すCPU配置数 |
+| `--repeats` | `3` | 最終候補を再測定する回数 |
+| `--calibration-repeats` | `3` | CPU特性の測定回数 |
+| `--tolerance` | `0.05` | CPU群を同型と見なす際の許容差 |
+| `--seed` | `42` | 計測時の生成と探索順序の乱数seed |
+| `--timeout` | `300` | 1回の計測の制限時間（秒） |
+| `--output` | `build/run-tuned.sh` | 調整済み実行スクリプトの保存先 |
+
+`uv run cpuprofiler topology`は利用可能なCPU構成を表示します。
+`uv run cpuprofiler --help`で全オプションを確認できます。
+保存先を変えた場合は`make run TUNED_SCRIPT=/path/to/script.sh`で実行します。
+
+## 元のllama2.cについて（英語）
 
 <p align="center">
   <img src="assets/llama_cute.jpg" width="300" height="300" alt="Cute Llama">
