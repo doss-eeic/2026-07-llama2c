@@ -1,0 +1,9 @@
+step,label,median_tok_s,mean_tok_s,step_ratio,step_ci_low,step_ci_high,ratio_to_upstream,n
+S1_upstream,"original code, P-cores 4 threads",633.2,626.5,,,,1.0,25
+S2_hugepage,+ hugepage,665.7,664.8,1.0512,1.0482,1.0544,1.0512,25
+S3_fused,+ fused QKV and W1/W3 matmuls,706.1,705.2,1.0607,1.0577,1.0633,1.115,25
+S4_argmax,+ int8 two-stage exact argmax,948.5,947.8,1.3448,1.3376,1.3506,1.4979,25
+S5_active,+ OMP_WAIT_POLICY=ACTIVE,1052.4,1049.4,1.1143,1.1,1.1159,1.6619,25
+S6_nine,"9 CPUs 0,2,4-10, guided,4 (team setting)",1567.4,1565.0,1.4894,1.4789,1.5,2.4752,25
+S7_kasikoi2,"kasikoi2 pick: 9 CPUs, guided,16, spin 10000",1556.3,1551.4,0.993,0.9859,1.0,2.4577,25
+S8_twelve,"12 threads 0-11, static",1601.4,1598.4,1.029,1.0217,1.0292,2.529,25

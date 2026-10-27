@@ -1,0 +1,55 @@
+start=2026-10-27T13:43:24+09:00 host=EE00025 note= blocks=25
+commits: master=c3130ec98fc434359d1b713a61a841cca5727243 ours=a49a36f7181e906026e533c47e001fd7c77a37a1
+ac_online=1 original_profile=balanced profile=performance
+epp=performance thp=always [madvise] never
+tty=/dev/pts/0 session=wayland
+Linux EE00025 7.0.0-38-generic #38~24.04.4-Ubuntu SMP PREEMPT_DYNAMIC Mon Sep 14 16:37:11 UTC 2 x86_64 x86_64 x86_64 GNU/Linux
+PRETTY_NAME="Ubuntu 24.04.3 LTS"
+NAME="Ubuntu"
+gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+Python 3.12.3
+model=/home/denjo/Downloads/native_kit/stories15M.bin sha256=cd590644d963867a
+file src/upstream/run.c sha256=9c4f2d5c6ae01b71
+file src/master/run/run.c sha256=37e781be6f0e689b
+file src/master/src/fused.h sha256=0bfe0ec30dfbd4ef
+file src/master/src/classifier.h sha256=bbb7e4ce556576ff
+file src/ours/run.c sha256=0135b32045f2290c
+file tokenizer.bin sha256=50a52ef822ee9e83
+file bin-up sha256=e7c3a08e01050325
+file bin-master sha256=6d5ea690ec1749bd
+file bin-ours sha256=bcc5dff881f8bfc2
+
+cand S1_upstream|up|-|0,1,2,3|default|static|-|original code, P-cores 4 threads
+cand S2_hugepage|ours|-w 3 -a 0|0,1,2,3|default|static|-|+ hugepage
+cand S3_fused|master|-w 1 -a 0|0,1,2,3|default|static|-|+ fused QKV and W1/W3 matmuls
+cand S4_argmax|master|-w 1 -a 1 -g 144|0,1,2,3|default|static|-|+ int8 two-stage exact argmax
+cand S5_active|master|-w 1 -a 1 -g 144|0,1,2,3|ACTIVE|static|-|+ OMP_WAIT_POLICY=ACTIVE
+cand S6_nine|master|-w 1 -a 1 -g 288|0,2,4,5,6,7,8,9,10|ACTIVE|guided,4|-|9 CPUs 0,2,4-10, guided,4 (team setting)
+cand S7_kasikoi2|master|-w 1 -a 1 -g 144|0,2,4,5,6,7,8,9,10|ACTIVE|guided,16|10000|kasikoi2 pick: 9 CPUs, guided,16, spin 10000
+cand S8_twelve|master|-w 1 -a 1 -g 288|0,1,2,3,4,5,6,7,8,9,10,11|ACTIVE|static|-|12 threads 0-11, static
+cand F_fused_only|master|-w 0 -a 0|0,1,2,3|default|static|-|fused matmuls without hugepage
+cand F_ours_w5|ours|-w 5 -a 0|0,1,2,3|default|static|-|sakurada -w 5 (fused + hugepage)
+cand F_ours_w5a1|ours|-w 5 -a 1 -g 144|0,1,2,3|default|static|-|sakurada -w 5 -a 1
+cand F_nine_default|master|-w 1 -a 1 -g 288|0,2,4,5,6,7,8,9,10|default|guided,4|-|9 CPUs guided,4 without ACTIVE
+cand F_nine_static|master|-w 1 -a 1 -g 288|0,2,4,5,6,7,8,9,10|ACTIVE|static|-|9 CPUs static ACTIVE
+cand F_twelve_guided4|master|-w 1 -a 1 -g 288|0,1,2,3,4,5,6,7,8,9,10,11|ACTIVE|guided,4|-|12 threads guided,4 ACTIVE
+cand F_all14_default|master|-w 1 -a 1 -g 144|0,1,2,3,4,5,6,7,8,9,10,11,12,13|default|dynamic,16|-|all 14 CPUs, default settings (kasikoi2 start)
+cand F_upstream_twelve|up|-|0,1,2,3,4,5,6,7,8,9,10,11|default|static|-|original code on 0-11
+
+CPU CORE    MAXMHZ   MINMHZ
+  0    0 4800.0000 400.0000
+  1    0 4800.0000 400.0000
+  2    1 4800.0000 400.0000
+  3    1 4800.0000 400.0000
+  4    2 3800.0000 400.0000
+  5    3 3800.0000 400.0000
+  6    4 3800.0000 400.0000
+  7    5 3800.0000 400.0000
+  8    6 3800.0000 400.0000
+  9    7 3800.0000 400.0000
+ 10    8 3800.0000 400.0000
+ 11    9 3800.0000 400.0000
+ 12   10 2400.0000 400.0000
+ 13   11 2400.0000 400.0000
+idle_temp=45 cool_temp=53
+end=2026-10-27T13:51:54+09:00 profile=performance

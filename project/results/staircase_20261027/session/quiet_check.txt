@@ -1,0 +1,2 @@
+[13:43:34] start: other processes used 0.6% of one CPU over 5 s; top: gnome-shell(1853) 0.4%, systemd-oomd(878) 0.2%
+[13:51:54] end: other processes used 1.0% of one CPU over 5 s; top: gnome-shell(1853) 0.4%, kworker/u60:0-i915_flip(165) 0.2%, irq/9-acpi(118) 0.2%, NetworkManager(1203) 0.2%

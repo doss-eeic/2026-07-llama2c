@@ -1,0 +1,35 @@
+[13:43:20] power profile: performance (was balanced)
+[13:43:20] downloading pinned sources
+[13:43:22] model: /home/denjo/Downloads/native_kit/stories15M.bin
+[13:43:22] building (gcc -Ofast -fopenmp -march=native, as make runomp)
+[13:43:24] warm-up: every candidate once (not recorded)
+[13:43:29] checking that nothing else is using the CPU (5 s)
+[13:43:34] resting 60s to measure the idle temperature. From now on do not touch the PC
+[13:44:39] idle 45 C; 16 candidates x 25 blocks, each block after resting to <= 53 C
+[13:44:56]   block 1/25 (rested 12s from 45 C)  elapsed 0 min, rough ETA 6 min
+[13:45:13]   block 2/25 (rested 12s from 49 C)  elapsed 0 min, rough ETA 6 min
+[13:45:30]   block 3/25 (rested 12s from 48 C)  elapsed 0 min, rough ETA 6 min
+[13:45:47]   block 4/25 (rested 12s from 48 C)  elapsed 1 min, rough ETA 5 min
+[13:46:04]   block 5/25 (rested 12s from 50 C)  elapsed 1 min, rough ETA 5 min
+[13:46:21]   block 6/25 (rested 12s from 51 C)  elapsed 1 min, rough ETA 5 min
+[13:46:38]   block 7/25 (rested 12s from 51 C)  elapsed 1 min, rough ETA 5 min
+[13:46:54]   block 8/25 (rested 12s from 51 C)  elapsed 2 min, rough ETA 4 min
+[13:47:11]   block 9/25 (rested 13s from 51 C)  elapsed 2 min, rough ETA 4 min
+[13:47:28]   block 10/25 (rested 12s from 52 C)  elapsed 2 min, rough ETA 4 min
+[13:47:47]   block 11/25 (rested 14s from 50 C)  elapsed 3 min, rough ETA 3 min
+[13:48:04]   block 12/25 (rested 12s from 51 C)  elapsed 3 min, rough ETA 3 min
+[13:48:24]   block 13/25 (rested 14s from 53 C)  elapsed 3 min, rough ETA 3 min
+[13:48:43]   block 14/25 (rested 14s from 53 C)  elapsed 4 min, rough ETA 3 min
+[13:49:00]   block 15/25 (rested 12s from 53 C)  elapsed 4 min, rough ETA 2 min
+[13:49:17]   block 16/25 (rested 12s from 52 C)  elapsed 4 min, rough ETA 2 min
+[13:49:34]   block 17/25 (rested 12s from 52 C)  elapsed 4 min, rough ETA 2 min
+[13:49:51]   block 18/25 (rested 12s from 53 C)  elapsed 5 min, rough ETA 2 min
+[13:50:08]   block 19/25 (rested 12s from 52 C)  elapsed 5 min, rough ETA 1 min
+[13:50:25]   block 20/25 (rested 12s from 51 C)  elapsed 5 min, rough ETA 1 min
+[13:50:41]   block 21/25 (rested 12s from 52 C)  elapsed 6 min, rough ETA 1 min
+[13:50:58]   block 22/25 (rested 13s from 53 C)  elapsed 6 min, rough ETA 0 min
+[13:51:15]   block 23/25 (rested 12s from 51 C)  elapsed 6 min, rough ETA 0 min
+[13:51:32]   block 24/25 (rested 12s from 52 C)  elapsed 6 min, rough ETA 0 min
+[13:51:49]   block 25/25 (rested 12s from 52 C)  elapsed 7 min, rough ETA 0 min
+[13:51:55] DONE. results: /home/denjo/llama_staircase/results_EE00025_staircase_20261027_134316.tar.gz
+[13:51:55] power profile restored to balanced
