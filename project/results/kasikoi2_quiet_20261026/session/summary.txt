@@ -1,0 +1,31 @@
+benchmark runs recorded: 508   failed or invalid tok/s (measured again): 0
+distinct generated texts: 1 (OK, all identical)
+
+== quietness per phase (from the wrapper) ==
+  nivcsw = times another task took a CPU from llama2c during one run; other = CPU seconds used by everything else
+  setup            runs    1  nivcsw median    18 p90    18  other CPU s median 0.030 p90 0.030  temp max 59 C
+  search1          runs  215  nivcsw median     3 p90    10  other CPU s median -0.004 p90 0.011  temp max 91 C
+  search2          runs  212  nivcsw median     4 p90    12  other CPU s median -0.002 p90 0.015  temp max 92 C
+  confirm_warmup   runs    5  nivcsw median     4 p90    27  other CPU s median 0.004 p90 0.013  temp max 67 C
+  confirm          runs   75  nivcsw median     5 p90    20  other CPU s median 0.001 p90 0.012  temp max 65 C
+
+== kasikoi2 searches ==
+  search1: 1575 tok/s, 86.81 s, 215 runs
+    cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10), threads=9, omp_dynamic=False, omp_proc_bind='close', omp_places=None, omp_schedule='guided,16', omp_wait_policy='ACTIVE', gomp_spincount=10000, group_size=144
+  search2: 1564 tok/s, 84.91 s, 212 runs
+    cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10), threads=9, omp_dynamic=False, omp_proc_bind='close', omp_places='{0},{2},{6},{7},{9},{4},{8},{10},{5}', omp_schedule='guided,8', omp_wait_policy=None, gomp_spincount=10000000, group_size=144
+
+== confirmation (15 blocks, random order; 'team' = 1000 / mean ms per token) ==
+  name                     n  median    mean    team    min   CV%   vs best (paired median [95% CI] faster-blocks)
+  ref_PE12_static         15    1601    1607    1606   1567   2.0
+  kasikoi2_search2        15    1567    1574    1574   1545   1.4   0.979 [0.957,0.993] 3/15
+  kasikoi2_search1        15    1567    1569    1568   1483   2.0   0.972 [0.957,0.993] 1/15
+  ref_N9_guided4          15    1556    1559    1559   1483   1.5   0.972 [0.944,1.000] 1/15
+  kasikoi2_input_all      15     965     960     960    888   2.1   0.604 [0.585,0.611] 0/15
+
+  candidates:
+    kasikoi2_search1      cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10), threads=9, omp_dynamic=False, omp_proc_bind='close', omp_places=None, omp_schedule='guided,16', omp_wait_policy='ACTIVE', gomp_spincount=10000, group_size=144
+    kasikoi2_search2      cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10), threads=9, omp_dynamic=False, omp_proc_bind='close', omp_places='{0},{2},{6},{7},{9},{4},{8},{10},{5}', omp_schedule='guided,8', omp_wait_policy=None, gomp_spincount=10000000, group_size=144
+    kasikoi2_input_all    cpus=(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13), threads=14, omp_dynamic=False, omp_proc_bind='close', omp_places=None, omp_schedule='dynamic,16', omp_wait_policy=None, gomp_spincount=None, group_size=144
+    ref_N9_guided4        cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10), threads=9, omp_dynamic=False, omp_proc_bind='close', omp_places=None, omp_schedule='guided,4', omp_wait_policy='ACTIVE', gomp_spincount=None, group_size=288
+    ref_PE12_static       cpus=(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11), threads=12, omp_dynamic=False, omp_proc_bind='close', omp_places=None, omp_schedule='static', omp_wait_policy='ACTIVE', gomp_spincount=None, group_size=288

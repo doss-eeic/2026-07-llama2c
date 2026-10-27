@@ -1,0 +1,14 @@
+Running kasikoi2 search...
+=== Calibrated Domains ===
+Class 0:
+  Domain 0: cores=((0, 1),) single=1.617±0.005 full=1.712±0.009 ms/token
+  Domain 1: cores=((2, 3),) single=1.643±0.032 full=1.760±0.047 ms/token
+Class 1:
+  Domain 2: cores=((4,), (5,), (6,), (7,)) single=3.604±0.252 full=1.409±0.003 ms/token
+Class 2:
+  Domain 3: cores=((8,), (9,), (10,), (11,)) single=3.665±0.336 full=1.418±0.009 ms/token
+Class 3:
+  Domain 4: cores=((12,), (13,)) single=7.213±1.030 full=- ms/token
+Best configuration: BenchmarkConfig(cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10), threads=9, output=None, binary=PosixPath('/home/denjo/llama_opt/src-1d7c213622901900d9fb6980b5b24512726830da/build/run-fused'), model=PosixPath('/home/denjo/llama_opt/src-1d7c213622901900d9fb6980b5b24512726830da/build/stories15M.bin'), tokenizer=PosixPath('/home/denjo/llama_opt/src-1d7c213622901900d9fb6980b5b24512726830da/tokenizer.bin'), steps=256, temperature=0.0, seed=42, prompt='Once upon a time', omp_dynamic=False, omp_proc_bind='close', omp_places='{0},{2},{6},{7},{9},{4},{8},{10},{5}', omp_schedule='guided,8', omp_wait_policy=None, gomp_spincount=10000000, optimize_weights=True, two_stage_argmax=True, group_size=144, timeout=300, build=True)
+Best performance: 1563.68 tokens/sec
+Search: 84.91 sec, 212 measurements

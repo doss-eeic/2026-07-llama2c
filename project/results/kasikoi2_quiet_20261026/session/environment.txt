@@ -1,0 +1,40 @@
+start=2026-10-26T16:23:49+09:00 host=EE00025 note= searches=2 blocks=15
+commit dev/opt=1d7c213622901900d9fb6980b5b24512726830da
+ac_online=1 original_profile=balanced profile=performance
+epp=performance thp=always [madvise] never
+Linux EE00025 7.0.0-38-generic #38~24.04.4-Ubuntu SMP PREEMPT_DYNAMIC Mon Sep 14 16:37:11 UTC 2 x86_64 x86_64 x86_64 GNU/Linux
+PRETTY_NAME="Ubuntu 24.04.3 LTS"
+NAME="Ubuntu"
+gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+uv 0.13.5 (x86_64-unknown-linux-gnu)
+Python 3.14.9
+tty=/dev/pts/0 display=:0 wayland=wayland-0 session=wayland
+file run.c sha256=77187ef3e46fd474
+file src/classifier.h sha256=aaa22c00fb0bb43c
+file src/fused.h sha256=0bfe0ec30dfbd4ef
+file build/stories15M.bin sha256=cd590644d963867a
+file tokenizer.bin sha256=50a52ef822ee9e83
+file build/run-fused.committed sha256=6d5ea690ec1749bd
+file build/run-fused.real sha256=6d5ea690ec1749bd
+file src/cpuprofiler/autotuner.py sha256=50eae7d6dd835754
+file src/cpuprofiler/benchmark.py sha256=b8ee9a51e53d3101
+file src/cpuprofiler/topology.py sha256=ebca1f619a713a57
+file src/cpuprofiler/__init__.py sha256=ce807140805b8046
+
+CPU CORE    MAXMHZ   MINMHZ
+  0    0 4800.0000 400.0000
+  1    0 4800.0000 400.0000
+  2    1 4800.0000 400.0000
+  3    1 4800.0000 400.0000
+  4    2 3800.0000 400.0000
+  5    3 3800.0000 400.0000
+  6    4 3800.0000 400.0000
+  7    5 3800.0000 400.0000
+  8    6 3800.0000 400.0000
+  9    7 3800.0000 400.0000
+ 10    8 3800.0000 400.0000
+ 11    9 3800.0000 400.0000
+ 12   10 2400.0000 400.0000
+ 13   11 2400.0000 400.0000
+idle_temp=46 cool_temp=54
+end=2026-10-26T16:32:58+09:00 profile=performance

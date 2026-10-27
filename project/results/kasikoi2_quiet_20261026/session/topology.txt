@@ -1,0 +1,35 @@
+Downloading cpython-3.14.9-linux-x86_64-gnu (download) (35.0MiB)
+ Downloaded cpython-3.14.9-linux-x86_64-gnu (download)
+Using CPython 3.14.9
+Creating virtual environment at: .venv
+   Building cpuprofiler @ file:///home/denjo/llama_opt/src-1d7c213622901900d9fb6980b5b24512726830da
+warning: `build_system.requires = ["uv-build>=0.12.23,<0.13.0"]` does not contain the current uv version 0.13.5
+      Built cpuprofiler @ file:///home/denjo/llama_opt/src-1d7c213622901900d9fb6980b5b24512726830da
+Installed 1 package in 0.61ms
+=== CPU Topology ===
+Logical CPUs: 14
+Physical Cores: 12
+
+Physical Cores:
+  Core  0: CPUs [0, 1]
+  Core  1: CPUs [2, 3]
+  Core  2: CPUs [4]
+  Core  3: CPUs [5]
+  Core  4: CPUs [6]
+  Core  5: CPUs [7]
+  Core  6: CPUs [8]
+  Core  7: CPUs [9]
+  Core  8: CPUs [10]
+  Core  9: CPUs [11]
+  Core 10: CPUs [12]
+  Core 11: CPUs [13]
+
+L2 Cache Groups:
+  L2 0: CPUs [0, 1], Size=2048K
+  L2 1: CPUs [2, 3], Size=2048K
+  L2 2: CPUs [4, 5, 6, 7], Size=2048K
+  L2 3: CPUs [8, 9, 10, 11], Size=2048K
+  L2 4: CPUs [12, 13], Size=2048K
+
+Representative CPUs:
+[0, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]

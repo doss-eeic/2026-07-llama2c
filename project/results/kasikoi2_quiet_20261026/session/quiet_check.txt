@@ -1,0 +1,5 @@
+[16:23:55] start: other processes used 1.0% of one CPU over 5 s; top: gnome-shell(1777) 0.8%, jbd2/nvme0n1p6-8(352) 0.2%
+[16:25:18] before search 1: other processes used 0.4% of one CPU over 5 s; top: gnome-shell(1777) 0.4%
+[16:27:21] before search 2: other processes used 0.2% of one CPU over 5 s; top: snap(2865) 0.2%
+[16:29:28] before confirmation: other processes used 0.8% of one CPU over 5 s; top: gnome-shell(1777) 0.4%, kworker/u56:2-i915(368) 0.2%, kworker/0:0-events(9) 0.2%
+[16:32:58] end: other processes used 0.2% of one CPU over 5 s; top: gnome-shell(1777) 0.2%

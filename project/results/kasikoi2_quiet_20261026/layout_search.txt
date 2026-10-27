@@ -1,0 +1,42 @@
+== search1: 215 runs, highest temperature in each fifth of the search: [65, 76, 81, 85, 91] C
+  fastest layout per CPU count with the default settings (dynamic,16, no wait policy, g144):
+     1 CPUs     619 tok/s  temp  56 C  cpus=3
+     2 CPUs     715 tok/s  temp  68 C  cpus=0,2
+     3 CPUs     828 tok/s  temp  68 C  cpus=0,2,8
+     4 CPUs     913 tok/s  temp  68 C  cpus=0,2,8,9
+     5 CPUs    1018 tok/s  temp  69 C  cpus=0,2,4,8,9
+     6 CPUs    1105 tok/s  temp  69 C  cpus=0,2,4,5,8,9
+     7 CPUs    1139 tok/s  temp  69 C  cpus=0,2,4,5,8,9,10
+     8 CPUs    1145 tok/s  temp  69 C  cpus=0,2,4,5,6,8,9,10
+     9 CPUs    1195 tok/s  temp  70 C  cpus=0,2,4,5,6,8,9,10,11
+    10 CPUs    1169 tok/s  temp  72 C  cpus=0,1,2,4,5,6,8,9,10,11
+    11 CPUs    1163 tok/s  temp  76 C  cpus=0,1,2,4,5,6,7,8,9,10,11
+    12 CPUs    1139 tok/s  temp  77 C  cpus=0,1,2,3,4,5,6,7,8,9,10,11
+    13 CPUs    1009 tok/s  temp  78 C  cpus=0,1,2,3,4,5,6,7,8,9,10,11,12
+    14 CPUs     965 tok/s  temp  91 C  cpus=0,1,2,3,4,5,6,7,8,9,10,11,12,13
+  layouts measured with other settings (runtime tuning), number of runs:
+     63  cpus=0,2,4,5,6,8,9,10,11
+     29  cpus=0,1,2,4,5,6,8,9,10
+     23  cpus=0,2,4,5,6,7,8,9,10
+  runs on CPUs 0-11: 1, with ACTIVE or a spin count: 0, with static: 0
+== search2: 212 runs, highest temperature in each fifth of the search: [70, 79, 84, 88, 92] C
+  fastest layout per CPU count with the default settings (dynamic,16, no wait policy, g144):
+     1 CPUs     621 tok/s  temp  65 C  cpus=0
+     2 CPUs     699 tok/s  temp  68 C  cpus=0,2
+     3 CPUs     837 tok/s  temp  70 C  cpus=0,2,4
+     4 CPUs     906 tok/s  temp  71 C  cpus=0,2,4,8
+     5 CPUs    1014 tok/s  temp  72 C  cpus=0,2,4,8,9
+     6 CPUs    1100 tok/s  temp  77 C  cpus=0,2,4,8,9,10
+     7 CPUs    1145 tok/s  temp  76 C  cpus=0,2,4,5,8,9,10
+     8 CPUs    1139 tok/s  temp  78 C  cpus=0,2,4,5,6,8,9,10
+     9 CPUs    1188 tok/s  temp  74 C  cpus=0,2,4,5,6,7,8,9,10
+    10 CPUs    1169 tok/s  temp  76 C  cpus=0,1,2,4,5,6,7,8,9,10
+    11 CPUs    1157 tok/s  temp  76 C  cpus=0,1,2,4,5,6,7,8,9,10,11
+    12 CPUs    1139 tok/s  temp  80 C  cpus=0,1,2,3,4,5,6,7,8,9,10,11
+    13 CPUs    1005 tok/s  temp  80 C  cpus=0,1,2,3,4,5,6,7,8,9,10,11,12
+    14 CPUs     965 tok/s  temp  92 C  cpus=0,1,2,3,4,5,6,7,8,9,10,11,12,13
+  layouts measured with other settings (runtime tuning), number of runs:
+     63  cpus=0,2,4,5,6,7,8,9,10
+     26  cpus=0,2,4,5,6,8,9,10,11
+     23  cpus=0,1,2,4,5,6,7,8,9,10
+  runs on CPUs 0-11: 1, with ACTIVE or a spin count: 0, with static: 0
