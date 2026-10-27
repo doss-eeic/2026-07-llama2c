@@ -83,7 +83,7 @@ testcc:
 
 .PHONY: clean
 clean:
-	rm -f build/run-fused build/run-upstream build/run-fused.exe
+	rm -f build/run-fused build/run-upstream build/run-upstream-plain build/run-fused.exe
 	rm -f runq
 	rm -f build/run-tuned.sh
 
@@ -91,6 +91,11 @@ clean:
 .PHONY: runupstream
 runupstream: run/run_upstream.c | build
 	$(CC) $(CPPFLAGS) -Ofast -fopenmp -march=native $< -lm -o build/run-upstream
+
+# Original upstream `make run` equivalent: -O3, no OpenMP.
+.PHONY: runupstreamplain
+runupstreamplain: run/run_upstream.c | build
+	$(CC) $(CPPFLAGS) -O3 -o build/run-upstream-plain $< -lm
 
 build:
 	mkdir -p $@

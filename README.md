@@ -26,30 +26,36 @@ make run
 
 ### upstreamとの比較（15Mモデル）
 
-同梱の`build/stories15M.bin`で、upstream、最適化版の既定設定、追加機能を
-有効にした最適化版を同じ入力で実行できます。
+「素のupstream」は元の`make run`と同じ`gcc -O3`・OpenMPなしのビルドです。
+元のリポジトリでは`./run`ですが、このブランチには`run/`ディレクトリがあるため
+`build/run-upstream-plain`へ出力します。「OpenMP upstream」は最適化版と
+コンパイルフラグとCPU配置を揃えた比較用ビルドです。
 
 ```bash
-make runomp runupstream
+make runupstreamplain runomp runupstream
+./build/run-upstream-plain build/stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
+
 export OMP_NUM_THREADS=4 OMP_DYNAMIC=FALSE OMP_PROC_BIND=close
 export OMP_PLACES='{4},{5},{6},{7}' OMP_SCHEDULE='dynamic,16'
 taskset -c 4,5,6,7 ./build/run-upstream build/stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
-taskset -c 4,5,6,7 ./build/run-fused build/stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
 taskset -c 4,5,6,7 ./build/run-fused build/stories15M.bin -n 256 -t 0 -s 42 -i "Once upon a time" -w 1 -a 1 -g 144
 ```
 
-このマシン（Intel Core Ultra 5 225U）で両バイナリを
-`gcc -Ofast -fopenmp -march=native`でビルドし、上記条件で各5回実行した中央値です。
+このマシン（Intel Core Ultra 5 225U）で各5回実行した中央値です。
+OpenMP版2種類は`gcc -Ofast -fopenmp -march=native`でビルドし、
+CPU 4–7の4スレッドを使用しました。素のupstreamにはCPU固定やOpenMP設定を
+適用していません。
 
-| 実行方法 | tok/s | upstream比 |
+| 実行方法 | tok/s | 素のupstream比 |
 | --- | ---: | ---: |
-| upstream | 483.59 | 1.00倍 |
-| 最適化版の既定設定 | 495.52 | 1.02倍 |
-| 最適化版 `-w 1 -a 1 -g 144` | 706.07 | 1.46倍 |
+| 素のupstream（`-O3`、1スレッド） | 155.52 | 1.00倍 |
+| OpenMP upstream（同じCPU配置） | 480.43 | 3.09倍 |
+| 最適化版 `-w 1 -a 1 -g 144` | 703.82 | 4.53倍 |
 
 この入力では3方式の生成テキストが一致しました。upstreamは`OMP_SCHEDULE`を
-参照せず、`-w`、`-a`、`-g`にも対応しません。速度差には仕事の分配方法と
-追加機能の効果が含まれます。
+参照せず、`-w`、`-a`、`-g`にも対応しません。素のupstreamとの差には
+コンパイル設定と並列化の効果が含まれます。最適化版はOpenMP upstream比で
+1.47倍でした。
 
 ## 42Mモデルを使う
 
@@ -74,35 +80,35 @@ make run ARGS='-n 0 -i "Once upon a time"'
 
 ### upstreamとの比較（42Mモデル）
 
-同じOpenMP最適化フラグで両方をビルドできます。`make run`は調整済みスクリプトを
-実行するため、upstreamを実行する場合は`build/run-upstream`を直接呼びます。
+15Mと同様に、元の`make run`相当の素のupstream、CPU配置を揃えたOpenMP
+upstream、最適化版を比較します。`make run`は調整済みスクリプトの実行なので、
+比較時は各バイナリを直接呼びます。
 
 ```bash
-make runomp runupstream
-./build/run-upstream build/stories42M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
-./build/run-fused build/stories42M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
-./build/run-fused build/stories42M.bin -n 256 -t 0 -s 42 -i "Once upon a time" -w 1 -a 1 -g 256
+make runupstreamplain runomp runupstream
+./build/run-upstream-plain build/stories42M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
+
+export OMP_NUM_THREADS=10 OMP_DYNAMIC=FALSE OMP_PROC_BIND=close
+export OMP_PLACES='{3},{2},{1},{0},{8},{10},{5},{9},{6},{4}'
+export OMP_SCHEDULE='guided,8' GOMP_SPINCOUNT=100000
+taskset -c 0,1,2,3,4,5,6,8,9,10 ./build/run-upstream build/stories42M.bin -n 256 -t 0 -s 42 -i "Once upon a time"
+taskset -c 0,1,2,3,4,5,6,8,9,10 ./build/run-fused build/stories42M.bin -n 256 -t 0 -s 42 -i "Once upon a time" -w 1 -a 1 -g 256
 ```
 
-upstreamは`-w`、`-a`、`-g`に対応しません。
-
 以下はこのマシン（Intel Core Ultra 5 225U）での42Mモデルの測定例です。
-両バイナリを`gcc -Ofast -fopenmp -march=native`でビルドし、CPU集合
-`0,1,2,3,4,5,6,8,9,10`、10スレッド、`OMP_DYNAMIC=FALSE`、`OMP_PROC_BIND=close`、
-`OMP_PLACES='{3},{2},{1},{0},{8},{10},{5},{9},{6},{4}'`、
-`OMP_SCHEDULE=guided,8`、`GOMP_SPINCOUNT=100000`を共通に設定しました。
-`-n 256 -t 0 -s 42 -i "Once upon a time"`を各5回実行した中央値です。
+OpenMP版2種類は`gcc -Ofast -fopenmp -march=native`でビルドし、上記のCPU集合と
+10スレッドで実行しました。素のupstreamにはCPU固定やOpenMP設定を適用して
+いません。各5回実行した中央値です。
 
-| 実行方法 | tok/s | upstream比 |
+| 実行方法 | tok/s | 素のupstream比 |
 | --- | ---: | ---: |
-| upstream | 375.00 | 1.00倍 |
-| 最適化版の既定設定 | 395.91 | 1.06倍 |
-| 最適化版 `-w 1 -a 1 -g 256` | 528.54 | 1.41倍 |
+| 素のupstream（`-O3`、1スレッド） | 44.63 | 1.00倍 |
+| OpenMP upstream（同じCPU配置） | 371.73 | 8.33倍 |
+| 最適化版 `-w 1 -a 1 -g 256` | 522.06 | 11.70倍 |
 
-この入力では3方式の生成テキストが一致しました。upstreamは`OMP_SCHEDULE`を
-参照しないため、既定設定の差には仕事の分配方法の差も含まれます。
-`-w`と`-a`を有効にした比較にはそれぞれの追加処理の効果も含まれます。
-速度はモデル、CPU配置、生成内容によって変わります。
+この入力では3方式の生成テキストが一致しました。最適化版はOpenMP upstream比で
+1.40倍でした。upstreamは`OMP_SCHEDULE`を参照しないため、OpenMP版同士の差には
+仕事の分配方法も含まれます。速度はモデル、CPU配置、生成内容によって変わります。
 
 ## cpuprofiler の設定と実行
 
