@@ -105,14 +105,12 @@ def main():
     # ここで測定条件を編集する。環境変数の設定や手動ビルドは不要。
     output_root = ROOT / "results" / datetime.now().strftime("distribute_%Y%m%d_%H%M%S_%f")
     configs = {
-        "P4": BenchmarkConfig(cpus=(0, 2, 1, 3), threads=4,
-                              output=output_root / "P4"),
-        "P4_E4": BenchmarkConfig(cpus=(0, 2, 1, 3, 4, 5, 8, 9), threads=8,
-                                 output=output_root / "P4_E4"),
-        "P2_E8": BenchmarkConfig(cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10, 11), threads=10,
-                                 output=output_root / "P2_E8"),
-        "All14": BenchmarkConfig(cpus=(0, 2, 4, 5, 6, 7, 8, 9, 10, 11, 1, 3, 12, 13),
-                                 threads=14, output=output_root / "All14"),
+        "P_omp":  BenchmarkConfig(cpus=(0, 1, 2, 3, 6, 7, 9, 10, 11), threads=9, omp_schedule="static",
+                                optimize_weights=True, two_stage_argmax=True,
+                                output=output_root / "P_omp"),
+        "P_pool": BenchmarkConfig(cpus=(0, 1, 2, 3, 6, 7, 9, 10, 11), threads=9,
+                                optimize_weights=True, two_stage_argmax=True, workers="pool",
+                                output=output_root / "P_pool"),
     }
     repeat = 10
     print(f"Results: {output_root}", flush=True)
