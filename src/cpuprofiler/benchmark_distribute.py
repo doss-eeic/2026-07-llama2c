@@ -65,9 +65,13 @@ def run(config: BenchmarkConfig) -> dict[str, float]:
         "OMP_NUM_THREADS": str(config.threads),
         "OMP_SCHEDULE": config.omp_schedule,
         "OMP_DYNAMIC": "TRUE" if config.omp_dynamic else "FALSE",
-        "OMP_PROC_BIND": config.omp_proc_bind,
-        "OMP_PLACES": config.omp_places or ",".join(f"{{{cpu}}}" for cpu in config.cpus),
     })
+    if config.workers == "pool":
+        # OMP_PROC_BINDが有効だとlibgompがメインスレッドを1つのCPUに固定し、-x poolはエラーになる
+        env["OMP_PROC_BIND"] = "false"
+    else:
+        env["OMP_PROC_BIND"] = config.omp_proc_bind
+        env["OMP_PLACES"] = config.omp_places or ",".join(f"{{{cpu}}}" for cpu in config.cpus)
     if config.omp_wait_policy is not None:
         env["OMP_WAIT_POLICY"] = config.omp_wait_policy.upper()
     if config.gomp_spincount is not None:
@@ -81,6 +85,8 @@ def run(config: BenchmarkConfig) -> dict[str, float]:
         command += ["-w", "1"]
     if config.two_stage_argmax:
         command += ["-a", "1", "-g", str(config.group_size)]
+    if config.workers == "pool":
+        command += ["-x", "pool"]
     with (output / "stdout.txt").open("w") as stdout, (output / "stderr.log").open("w") as stderr:
         subprocess.run(command, cwd=ROOT, env=env, stdout=stdout, stderr=stderr,
                        check=True, timeout=config.timeout)
@@ -133,6 +139,7 @@ def main():
                      "schedule": config.omp_schedule, "optimize_weights": config.optimize_weights,
                      "two_stage_argmax": config.two_stage_argmax, "group_size": config.group_size,
                      "omp_wait_policy": config.omp_wait_policy, "gomp_spincount": config.gomp_spincount,
+                     "workers": config.workers,
                      **summary})
         print(f"{name} run {i + 1}: {summary['tokens_per_second']:.2f} tokens/s", flush=True)
         with (output_root / "summary.csv").open("w", newline="") as file:

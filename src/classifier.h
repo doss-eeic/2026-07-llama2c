@@ -54,6 +54,38 @@ static void setup_classifier(float* wcls, int dim, int vocab, int gs, int huge_p
 #endif
 }
 
+// 行 i の int8 の近似値の上限を logits[i]、下限を cls.lo[i] に入れ、下限を返す
+static inline float cls_int8_row(float* logits, const float* x, const float* A, int n, int i) {
+    int gs = cls.gs, ng = n / gs;
+    const int8_t* q = cls.q + (size_t)i * n;
+    const float* sc = cls.s + (size_t)i * ng;
+    float approx = 0.0f, bound = 0.0f;
+    for (int g = 0; g < ng; g++) {
+        float dot = 0.0f;
+        for (int j = 0; j < gs; j++) { dot += (float)q[g * gs + j] * x[g * gs + j]; }
+        approx += dot * sc[g];
+        bound += sc[g] * A[g];
+    }
+    // Same rounding margin as Sakurada's implementation.
+    float err = 0.51f * bound + 1e-6f;
+    logits[i] = approx + err;
+    cls.lo[i] = approx - err;
+    return cls.lo[i];
+}
+
+typedef struct { float *logits, *x, *A; int n; float L[POOL_MAX_CPUS]; } ClsJob;
+
+// -x pool 用: 行 [i0, i1) を計算し、下限の最大を L[rank] に入れる
+static void cls_int8_rows(void* ctx, int i0, int i1, int rank) {
+    ClsJob* job = ctx;
+    float L = -FLT_MAX;
+    for (int i = i0; i < i1; i++) {
+        float lo = cls_int8_row(job->logits, job->x, job->A, job->n, i);
+        if (lo > L) { L = lo; }
+    }
+    job->L[rank] = L;
+}
+
 static void classifier_int8(float* logits, float* x, float* wcls, int n, int d) {
     int gs = cls.gs, ng = n / gs;
     float A[ng];
@@ -64,22 +96,18 @@ static void classifier_int8(float* logits, float* x, float* wcls, int n, int d) 
     }
     // Finite sentinel: -Ofast permits optimizing away comparisons with infinities.
     float L = -FLT_MAX;
-    #pragma omp parallel for schedule(runtime) reduction(max:L)
-    for (int i = 0; i < d; i++) {
-        const int8_t* q = cls.q + (size_t)i * n;
-        const float* sc = cls.s + (size_t)i * ng;
-        float approx = 0.0f, bound = 0.0f;
-        for (int g = 0; g < ng; g++) {
-            float dot = 0.0f;
-            for (int j = 0; j < gs; j++) { dot += (float)q[g * gs + j] * x[g * gs + j]; }
-            approx += dot * sc[g];
-            bound += sc[g] * A[g];
+    if (pool_on) {
+        // 最大値は取る順番で変わらないので、OpenMP の reduction(max) と同じ L になる
+        static ClsJob job;
+        job.logits = logits; job.x = x; job.A = A; job.n = n;
+        pool_run(cls_int8_rows, &job, d);
+        for (int r = 0; r < pool_n; r++) { if (job.L[r] > L) { L = job.L[r]; } }
+    } else {
+        #pragma omp parallel for schedule(runtime) reduction(max:L)
+        for (int i = 0; i < d; i++) {
+            float lo = cls_int8_row(logits, x, A, n, i);
+            if (lo > L) { L = lo; }
         }
-        // Same rounding margin as Sakurada's implementation.
-        float err = 0.51f * bound + 1e-6f;
-        logits[i] = approx + err;
-        cls.lo[i] = approx - err;
-        if (cls.lo[i] > L) { L = cls.lo[i]; }
     }
     for (int i = 0; i < d; i++) {
         logits[i] = logits[i] >= L ? dot_f32(wcls + (size_t)i * n, x, n) : -FLT_MAX;

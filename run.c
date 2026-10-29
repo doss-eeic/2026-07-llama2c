@@ -1,4 +1,5 @@
 /* Inference for Llama-2 Transformer model in pure C */
+#define _GNU_SOURCE // -x pool の sched_setaffinity / cpu_set_t / pthread_attr_setaffinity_np に必要
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -236,11 +237,28 @@ void softmax(float* x, int size) {
     }
 }
 
+#include "src/pool.h"
 #include "src/classifier.h"
+
+typedef struct { float* xout; float* x; float* w; int n; } MatmulJob;
+
+// -x pool 用: 行 [i0, i1) を計算する（下の matmul と同じ計算）
+static void matmul_rows(void* ctx, int i0, int i1, int rank) {
+    (void)rank;
+    const MatmulJob* job = ctx;
+    for (int i = i0; i < i1; i++) {
+        job->xout[i] = dot_f32(job->w + (size_t)i * job->n, job->x, job->n);
+    }
+}
 
 void matmul(float* xout, float* x, float* w, int n, int d) {
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
+    if (pool_on) {
+        MatmulJob job = { xout, x, w, n };
+        pool_run(matmul_rows, &job, d);
+        return;
+    }
     int i;
     #pragma omp parallel for private(i) schedule(runtime)
     for (i = 0; i < d; i++) {
@@ -249,6 +267,57 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
 }
 
 #include "src/fused.h"
+
+typedef struct { Config* p; RunState* s; int loff; int pos; } AttentionJob;
+
+// ヘッド [h0, h1) の multihead attention を計算する
+static void attention_heads(void* ctx, int h0, int h1, int rank) {
+    (void)rank;
+    const AttentionJob* job = ctx;
+    Config* p = job->p;
+    RunState* s = job->s;
+    int loff = job->loff;
+    int pos = job->pos;
+    int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
+    int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
+    int head_size = p->dim / p->n_heads;
+    for (int h = h0; h < h1; h++) {
+        // get the query vector for this head
+        float* q = s->q + h * head_size;
+        // attention scores for this head
+        float* att = s->att + h * p->seq_len;
+        // iterate over all timesteps, including the current one
+        for (int t = 0; t <= pos; t++) {
+            // get the key vector for this head and at this timestep
+            float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+            // calculate the attention score as the dot product of q and k
+            float score = 0.0f;
+            for (int i = 0; i < head_size; i++) {
+                score += q[i] * k[i];
+            }
+            score /= sqrtf(head_size);
+            // save the score to the attention buffer
+            att[t] = score;
+        }
+
+        // softmax the scores to get attention weights, from 0..pos inclusively
+        softmax(att, pos + 1);
+
+        // weighted sum of the values, store back into xb
+        float* xb = s->xb + h * head_size;
+        memset(xb, 0, head_size * sizeof(float));
+        for (int t = 0; t <= pos; t++) {
+            // get the value vector for this head and at this timestep
+            float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+            // get the attention weight for this timestep
+            float a = att[t];
+            // accumulate the weighted value into xb
+            for (int i = 0; i < head_size; i++) {
+                xb[i] += a * v[i];
+            }
+        }
+    }
+}
 
 float* forward(Transformer* transformer, int token, int pos) {
 
@@ -259,7 +328,6 @@ float* forward(Transformer* transformer, int token, int pos) {
     float *x = s->x;
     int dim = p->dim;
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
-    int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
     int hidden_dim =  p->hidden_dim;
     int head_size = dim / p->n_heads;
 
@@ -300,43 +368,13 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // multihead attention. iterate over all heads
-        int h;
-        #pragma omp parallel for private(h)
-        for (h = 0; h < p->n_heads; h++) {
-            // get the query vector for this head
-            float* q = s->q + h * head_size;
-            // attention scores for this head
-            float* att = s->att + h * p->seq_len;
-            // iterate over all timesteps, including the current one
-            for (int t = 0; t <= pos; t++) {
-                // get the key vector for this head and at this timestep
-                float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // calculate the attention score as the dot product of q and k
-                float score = 0.0f;
-                for (int i = 0; i < head_size; i++) {
-                    score += q[i] * k[i];
-                }
-                score /= sqrtf(head_size);
-                // save the score to the attention buffer
-                att[t] = score;
-            }
-
-            // softmax the scores to get attention weights, from 0..pos inclusively
-            softmax(att, pos + 1);
-
-            // weighted sum of the values, store back into xb
-            float* xb = s->xb + h * head_size;
-            memset(xb, 0, head_size * sizeof(float));
-            for (int t = 0; t <= pos; t++) {
-                // get the value vector for this head and at this timestep
-                float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // get the attention weight for this timestep
-                float a = att[t];
-                // accumulate the weighted value into xb
-                for (int i = 0; i < head_size; i++) {
-                    xb[i] += a * v[i];
-                }
-            }
+        AttentionJob att_job = { p, s, loff, pos };
+        if (pool_on) {
+            pool_run(attention_heads, &att_job, p->n_heads);
+        } else {
+            int h;
+            #pragma omp parallel for private(h)
+            for (h = 0; h < p->n_heads; h++) { attention_heads(&att_job, h, h + 1, 0); }
         }
 
         // final matmul to get the output of the attention
@@ -915,6 +953,7 @@ void error_usage() {
     fprintf(stderr, "  -w <int>    optimize weights: 0=off (default) 1=aligned+hugepage\n");
     fprintf(stderr, "  -a <int>    output layer: 0=fp32 (default) 1=int8 + fp32 argmax (-t 0)\n");
     fprintf(stderr, "  -g <int>    int8 group size, divides dim, default 144\n");
+    fprintf(stderr, "  -x <string> workers: omp (default) | pool = one pinned thread per CPU at startup (taskset)\n");
     exit(EXIT_FAILURE);
 }
 
@@ -932,6 +971,7 @@ int main(int argc, char *argv[]) {
     char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
     int classifier_mode = 0, group_size = 144;
     int optimize_weights = 0; // copy weights to aligned hugepage memory when enabled
+    char *workers = "omp";    // parallel regions: omp (OpenMP) | pool (one pinned thread per CPU)
 
     // poor man's C argparse so we can override the defaults above from the command line
     if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
@@ -952,6 +992,7 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'a') { classifier_mode = atoi(argv[i + 1]); }
         else if (argv[i][1] == 'g') { group_size = atoi(argv[i + 1]); }
         else if (argv[i][1] == 'w') { optimize_weights = atoi(argv[i + 1]); }
+        else if (argv[i][1] == 'x') { workers = argv[i + 1]; }
         else { error_usage(); }
     }
 
@@ -961,6 +1002,7 @@ int main(int argc, char *argv[]) {
     if (topp < 0.0 || 1.0 < topp) topp = 0.9;
     if (steps < 0) steps = 0;
     if (optimize_weights != 0 && optimize_weights != 1) { error_usage(); }
+    if (strcmp(workers, "omp") != 0 && strcmp(workers, "pool") != 0) { error_usage(); }
 
     if ((classifier_mode != 0 && classifier_mode != 1) || group_size <= 0) { error_usage(); }
     if (classifier_mode && temperature != 0.0f) {
@@ -981,6 +1023,8 @@ int main(int argc, char *argv[]) {
                          transformer.config.vocab_size, group_size, optimize_weights);
     }
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
+    // 出力層の初期化（OpenMP）が終わってから作る。ワーカーはプロセスが終わるまでスピンし続ける
+    if (strcmp(workers, "pool") == 0) { pool_start(); }
 
     // build the Tokenizer via the tokenizer .bin file
     Tokenizer tokenizer;
